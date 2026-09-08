@@ -138,10 +138,10 @@ export const DashboardShell = () => {
           <div className="flex items-center justify-between p-2.5 bg-white rounded-lg border border-gray-200 shadow-2xs">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-8 h-8 rounded-md bg-gray-900 text-white flex items-center justify-center font-semibold text-xs shrink-0">
-                {(manager?.name || 'V')[0].toUpperCase()}
+                {(manager?.salonName || manager?.name || 'V')[0].toUpperCase()}
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-semibold text-gray-900 truncate">{manager?.name || 'Looks & Co. Studio'}</p>
+                <p className="text-xs font-semibold text-gray-900 truncate">{manager?.salonName || manager?.name || 'Salon Partner'}</p>
                 <p className="text-[10px] text-gray-500 font-mono truncate">{manager?.email || 'Manager'}</p>
               </div>
             </div>
@@ -165,7 +165,7 @@ export const DashboardShell = () => {
               {activeNav?.label || 'Dashboard'}
             </h1>
             <span className="text-gray-300 font-light">|</span>
-            <span className="text-xs font-mono text-gray-500">Live Operating Mode</span>
+            <span className="text-xs font-mono text-gray-500">{manager?.salonName ? `${manager.salonName} · Live Operating Mode` : 'Live Operating Mode'}</span>
           </div>
 
           <div className="flex items-center gap-4">

@@ -5,6 +5,8 @@ import { Clock, User, Scissors } from "lucide-react";
 const STATUS_STYLE = {
   confirmed: { bg: "#f0fdf4", color: "#16a34a", border: "#bbf7d0", label: "Confirmed" },
   pending: { bg: "#fffbeb", color: "#d97706", border: "#fde68a", label: "Pending" },
+  waiting: { bg: "#fffbeb", color: "#d97706", border: "#fde68a", label: "Waiting" },
+  in_service: { bg: "#eff6ff", color: "#2563eb", border: "#bfdbfe", label: "In Service" },
   completed: { bg: "#f9fafb", color: "#6b7280", border: "#e5e7eb", label: "Completed" },
   cancelled: { bg: "#fef2f2", color: "#dc2626", border: "#fecaca", label: "Cancelled" },
 };

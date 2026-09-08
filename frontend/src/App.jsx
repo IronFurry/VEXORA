@@ -12,12 +12,15 @@ import { FinalCta } from './components/FinalCta.jsx';
 import { Footer } from './components/Footer.jsx';
 import { CustomerModal, SalonModal } from './components/Modals.jsx';
 import { CustomerProfile } from './components/CustomerProfile.jsx';
+import { FloatingQueueWidget } from './components/FloatingQueueWidget.jsx';
+import { TicketPassModal } from './components/TicketPassModal.jsx';
 
 export const App = () => {
   const [currentRole, setCurrentRole] = useState('customer');
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
   const [salonModalOpen, setSalonModalOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [ticketPassOpen, setTicketPassOpen] = useState(false);
   const [selectedSalonForModal, setSelectedSalonForModal] = useState('Looks & Co. Studio');
   const [roleFlash, setRoleFlash] = useState(null);
 
@@ -155,6 +158,15 @@ export const App = () => {
       <SalonModal
         isOpen={salonModalOpen}
         onClose={() => setSalonModalOpen(false)}
+      />
+
+      {/* ── Fixed Floating Real-Time Queue Widget (Bottom Right) ── */}
+      <FloatingQueueWidget onOpenTicket={() => setTicketPassOpen(true)} />
+
+      {/* ── Ticket Pass Modal (Live Queue + Receipt Download) ── */}
+      <TicketPassModal
+        isOpen={ticketPassOpen}
+        onClose={() => setTicketPassOpen(false)}
       />
     </div>
   );

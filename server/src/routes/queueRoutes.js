@@ -1,6 +1,13 @@
 const express = require("express");
 const router = express.Router();
-const { getQueue, joinQueue, startService, completeService, cancelQueue } = require("../controllers/queueController");
+const {
+  getQueue,
+  joinQueue,
+  startService,
+  completeService,
+  cancelQueue,
+  moveUpQueue,
+} = require("../controllers/queueController");
 const { protect, requirePermission } = require("../middleware/auth");
 
 router.use(protect);
@@ -12,5 +19,6 @@ router.post("/join", joinQueue);
 router.patch("/:appointmentId/start", startService);
 router.patch("/:appointmentId/complete", completeService);
 router.patch("/:appointmentId/cancel", cancelQueue);
+router.patch("/:appointmentId/move-up", moveUpQueue);
 
 module.exports = router;

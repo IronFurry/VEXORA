@@ -28,9 +28,11 @@ export const LiveQueue = () => {
   const [selectedStaff, setSelectedStaff] = useState(staff[0]?.name || 'Rahul Sharma')
 
   const filteredQueue = queue.filter(item => {
-    const matchesSearch = item.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          item.service.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          item.assignedStaff.toLowerCase().includes(searchQuery.toLowerCase())
+    const cust = (item.customerName || item.customer || '').toLowerCase()
+    const srv = (item.service || '').toLowerCase()
+    const stf = (item.assignedStaff || item.staff || '').toLowerCase()
+    const q = searchQuery.toLowerCase()
+    const matchesSearch = cust.includes(q) || srv.includes(q) || stf.includes(q)
     const matchesStatus = statusFilter === 'all' || item.status === statusFilter
     return matchesSearch && matchesStatus
   })

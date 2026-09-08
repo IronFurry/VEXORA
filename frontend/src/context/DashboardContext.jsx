@@ -1,5 +1,6 @@
-﻿import React, { createContext, useContext, useReducer, useCallback, useEffect, useState } from "react";
+import React, { createContext, useContext, useReducer, useCallback, useEffect, useState } from "react";
 import { dashboardApi } from "../api/dashboardApi";
+import { socket, joinSalonRoom } from "../api/socket";
 
 export const MOCK_STAFF = [
   { id: 1, name: "Vikram Sharma", initials: "VS", role: "Senior Stylist", status: "in-service", assignedServices: ["Precision Fade","Beard Trim","Hot Towel Shave"], todayClients: 8, shift: "9:00 AM - 6:00 PM", rating: 4.9 },
@@ -113,39 +114,118 @@ export const DashboardProvider = ({ children }) => {
   const [state, dispatch] = useReducer(dashboardReducer, initialState);
   const [isApiLoading, setIsApiLoading] = useState(true);
   const [apiError, setApiError] = useState(null);
-  useEffect(() => {
+
+  const loadFromBackend = useCallback(async () => {
     const token = localStorage.getItem("vexora_token");
     if (!token) { setIsApiLoading(false); return; }
-    const load = async () => {
-      try {
-        const [overviewRes, queueRes, appointmentsRes, servicesRes, staffRes, inventoryRes, reviewsRes, couponsRes, customersRes] = await Promise.allSettled([
-          dashboardApi.getOverview(), dashboardApi.getQueue(), dashboardApi.getAppointments({ limit: 50 }),
-          dashboardApi.getServices(), dashboardApi.getStaff(), dashboardApi.getInventory(),
-          dashboardApi.getReviews(), dashboardApi.getCoupons(), dashboardApi.getCustomers({ limit: 100 }),
-        ]);
-        const ok = r => r.status === "fulfilled";
-        const services = ok(servicesRes) ? servicesRes.value.data.services.map(s => ({ id: s.serviceId, name: s.serviceName, category: s.category, duration: s.duration, price: s.price, available: s.status === "active" })) : initialState.services;
-        const staff = ok(staffRes) ? staffRes.value.data.staff.map(s => ({ id: s.staffId, name: s.name, initials: s.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase(), role: s.role.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase()), status: s.status === "active" ? "available" : "break", assignedServices: s.assignedServices, todayClients: 0, shift: s.schedule?.monday || "09:00-18:00", rating: 4.8 })) : initialState.staff;
-        const queue = ok(queueRes) ? queueRes.value.data.queue.map((q, i) => ({ id: q.appointmentId, pos: q.queuePosition || i + 1, customer: q.customerId, initials: q.customerId.slice(0, 2).toUpperCase(), service: q.serviceId, staff: q.staffId || "Any", status: q.status === "in_service" ? "in-service" : "waiting", eta: q.estimatedWaitTime || 0, duration: 30, elapsed: 0 })) : initialState.queue;
-        const appointments = ok(appointmentsRes) ? appointmentsRes.value.data.appointments.map(a => ({ id: a.appointmentId, customer: a.customerId, initials: a.customerId.slice(0, 2).toUpperCase(), service: a.serviceId, staff: a.staffId || "Unassigned", date: new Date(a.appointmentDate).toDateString() === new Date().toDateString() ? "Today" : new Date(a.appointmentDate).toLocaleDateString(), time: a.startTime, status: a.status, duration: 30 })) : initialState.appointments;
-        const inventory = ok(inventoryRes) ? inventoryRes.value.data.inventory.map(item => ({ id: item.inventoryId, name: item.productName, category: item.category, stock: item.quantity, usedToday: 0, reorderAt: item.lowStockThreshold, unit: item.unit })) : initialState.inventory;
-        const reviews = ok(reviewsRes) ? reviewsRes.value.data.reviews.map(r => ({ id: r.reviewId, customer: r.customerId, initials: r.customerId.slice(0, 2).toUpperCase(), rating: r.rating, comment: r.comment, service: r.serviceId, date: new Date(r.createdAt).toLocaleDateString(), reply: r.managerResponse, status: r.status })) : initialState.reviews;
-        const coupons = ok(couponsRes) ? couponsRes.value.data.coupons.map(c => ({ id: c.couponId, code: c.code, type: c.discountType, value: c.discountValue, minOrder: c.minimumAmount, expiry: new Date(c.validUntil).toLocaleDateString(), used: c.usedCount, active: c.status === "active", description: c.discountType === "percentage" ? `${c.discountValue}% off` : `Rs ${c.discountValue} off` })) : initialState.coupons;
-        const customers = ok(customersRes) ? customersRes.value.data.customers.map(c => ({ id: c.customerId, name: c.name, initials: c.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase(), phone: c.phone, email: c.email, visits: 0, lastVisit: c.createdAt ? new Date(c.createdAt).toLocaleDateString() : "N/A", totalSpend: 0, tier: "Regular" })) : initialState.customers;
-        const overview = ok(overviewRes) ? overviewRes.value.data : null;
-        dispatch({ type: "LOAD_FROM_API", payload: { queue, appointments, services, staff, inventory, reviews, coupons, customers, completedToday: overview?.kpis?.completedToday ?? initialState.completedToday, revenueToday: overview?.kpis?.revenueToday ?? initialState.revenueToday } });
-      } catch (err) {
-        console.warn("[VEXORA] API bootstrap failed, using mock data.", err.message);
-        setApiError(err.message);
-      } finally { setIsApiLoading(false); }
-    };
-    load();
+
+    try {
+      const [overviewRes, queueRes, appointmentsRes, servicesRes, staffRes, inventoryRes, reviewsRes, couponsRes, customersRes] = await Promise.allSettled([
+        dashboardApi.getOverview(), dashboardApi.getQueue(), dashboardApi.getAppointments({ limit: 50 }),
+        dashboardApi.getServices(), dashboardApi.getStaff(), dashboardApi.getInventory(),
+        dashboardApi.getReviews(), dashboardApi.getCoupons(), dashboardApi.getCustomers({ limit: 100 }),
+      ]);
+      const ok = r => r.status === "fulfilled";
+      const services = ok(servicesRes) ? servicesRes.value.data.services.map(s => ({ id: s.serviceId, name: s.serviceName, category: s.category, duration: s.duration, price: s.price, available: s.status === "active" })) : initialState.services;
+      const staff = ok(staffRes) ? staffRes.value.data.staff.map(s => ({ id: s.staffId, name: s.name, initials: s.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase(), role: s.role.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase()), status: s.status === "active" ? "available" : "break", assignedServices: s.assignedServices, todayClients: 0, shift: s.schedule?.monday || "09:00-18:00", rating: 4.8 })) : initialState.staff;
+      const queue = ok(queueRes) ? queueRes.value.data.queue.map((q, i) => ({
+        id: q.appointmentId,
+        appointmentId: q.appointmentId,
+        pos: q.queuePosition || i + 1,
+        customer: q.customerName || q.customerId,
+        customerName: q.customerName || q.customerId,
+        initials: (q.customerName || q.customerId).slice(0, 2).toUpperCase(),
+        service: q.serviceName || q.serviceId,
+        staff: q.staffName || q.staffId || "Any Stylist",
+        assignedStaff: q.staffName || q.staffId || "Any Stylist",
+        status: q.status === "in_service" ? "in-service" : q.status === "completed" ? "completed" : q.status === "cancelled" ? "cancelled" : "waiting",
+        eta: q.estimatedWaitTime || 0,
+        duration: 30,
+        elapsed: 0
+      })) : initialState.queue;
+      const appointments = ok(appointmentsRes) ? appointmentsRes.value.data.appointments.map(a => ({
+        id: a.appointmentId,
+        appointmentId: a.appointmentId,
+        customer: a.customerName || a.customerId,
+        customerName: a.customerName || a.customerId,
+        phone: a.phone || "",
+        initials: (a.customerName || a.customerId || "G").slice(0, 2).toUpperCase(),
+        service: a.serviceName || a.serviceId || "Salon Service",
+        staff: a.staffName || a.staffId || "Any Stylist",
+        date: new Date(a.appointmentDate).toDateString() === new Date().toDateString() ? "Today" : new Date(a.appointmentDate).toLocaleDateString(),
+        time: a.startTime,
+        status: a.status,
+        duration: a.duration || 30
+      })) : initialState.appointments;
+      const inventory = ok(inventoryRes) ? inventoryRes.value.data.inventory.map(item => ({ id: item.inventoryId, name: item.productName, category: item.category, stock: item.quantity, usedToday: 0, reorderAt: item.lowStockThreshold, unit: item.unit })) : initialState.inventory;
+      const reviews = ok(reviewsRes) ? reviewsRes.value.data.reviews.map(r => ({ id: r.reviewId, customer: r.customerId, initials: r.customerId.slice(0, 2).toUpperCase(), rating: r.rating, comment: r.comment, service: r.serviceId, date: new Date(r.createdAt).toLocaleDateString(), reply: r.managerResponse, status: r.status })) : initialState.reviews;
+      const coupons = ok(couponsRes) ? couponsRes.value.data.coupons.map(c => ({ id: c.couponId, code: c.code, type: c.discountType, value: c.discountValue, minOrder: c.minimumAmount, expiry: new Date(c.validUntil).toLocaleDateString(), used: c.usedCount, active: c.status === "active", description: c.discountType === "percentage" ? `${c.discountValue}% off` : `Rs ${c.discountValue} off` })) : initialState.coupons;
+      const customers = ok(customersRes) ? customersRes.value.data.customers.map(c => ({ id: c.customerId, name: c.name, initials: c.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase(), phone: c.phone, email: c.email, visits: 0, lastVisit: c.createdAt ? new Date(c.createdAt).toLocaleDateString() : "N/A", totalSpend: 0, tier: "Regular" })) : initialState.customers;
+      const overview = ok(overviewRes) ? overviewRes.value.data : null;
+      dispatch({ type: "LOAD_FROM_API", payload: { queue, appointments, services, staff, inventory, reviews, coupons, customers, completedToday: overview?.kpis?.completedToday ?? initialState.completedToday, revenueToday: overview?.kpis?.revenueToday ?? initialState.revenueToday } });
+    } catch (err) {
+      console.warn("[VEXORA] API bootstrap failed, using mock data.", err.message);
+      setApiError(err.message);
+    } finally { setIsApiLoading(false); }
   }, []);
-  const startService = useCallback((id, customerName) => { dispatch({ type: "START_SERVICE", id, customerName }); dashboardApi.startService(id).catch(console.warn); }, []);
-  const completeService = useCallback((id) => { dispatch({ type: "COMPLETE_SERVICE", id }); dashboardApi.completeService(id).catch(console.warn); }, []);
-  const cancelService = useCallback((id) => { dispatch({ type: "CANCEL_SERVICE", id }); dashboardApi.cancelQueue(id).catch(console.warn); }, []);
-  const moveUp = useCallback((id) => dispatch({ type: "MOVE_UP", id }), []);
-  const addCustomer = useCallback((customer, service, staff) => dispatch({ type: "ADD_CUSTOMER", customer, service, staff }), []);
+
+  useEffect(() => {
+    loadFromBackend();
+
+    // Join manager salon room if available
+    try {
+      const storedMgr = localStorage.getItem("vexora_manager");
+      if (storedMgr) {
+        const mgr = JSON.parse(storedMgr);
+        if (mgr.salonId) joinSalonRoom(mgr.salonId);
+      }
+    } catch {}
+
+    // Socket.IO real-time event listeners
+    const handleRealtimeUpdate = () => {
+      loadFromBackend();
+    };
+
+    socket.on("queue:updated", handleRealtimeUpdate);
+    socket.on("queue:created", handleRealtimeUpdate);
+    socket.on("queue:started", handleRealtimeUpdate);
+    socket.on("queue:completed", handleRealtimeUpdate);
+    socket.on("queue:cancelled", handleRealtimeUpdate);
+
+    return () => {
+      socket.off("queue:updated", handleRealtimeUpdate);
+      socket.off("queue:created", handleRealtimeUpdate);
+      socket.off("queue:started", handleRealtimeUpdate);
+      socket.off("queue:completed", handleRealtimeUpdate);
+      socket.off("queue:cancelled", handleRealtimeUpdate);
+    };
+  }, [loadFromBackend]);
+
+  const startService = useCallback((id, customerName) => {
+    dispatch({ type: "START_SERVICE", id, customerName });
+    dashboardApi.startService(id).catch(console.warn);
+  }, []);
+
+  const completeService = useCallback((id) => {
+    dispatch({ type: "COMPLETE_SERVICE", id });
+    dashboardApi.completeService(id).catch(console.warn);
+  }, []);
+
+  const cancelService = useCallback((id) => {
+    dispatch({ type: "CANCEL_SERVICE", id });
+    dashboardApi.cancelQueue(id).catch(console.warn);
+  }, []);
+
+  const moveUp = useCallback((id) => {
+    dispatch({ type: "MOVE_UP", id });
+    dashboardApi.moveUp(id).catch(console.warn);
+  }, []);
+
+  const addCustomer = useCallback((customer, service, staff) => {
+    dispatch({ type: "ADD_CUSTOMER", customer, service, staff });
+    dashboardApi.joinQueue(customer, service, staff).catch(console.warn);
+  }, []);
+
   const updateStock = useCallback((id, delta) => { dispatch({ type: "UPDATE_STOCK", id, delta }); dashboardApi.updateStock(id, delta).catch(console.warn); }, []);
   const toggleService = useCallback((id) => { dispatch({ type: "TOGGLE_SERVICE", id }); }, []);
   const addService = useCallback((data) => { dispatch({ type: "ADD_SERVICE", ...data }); dashboardApi.createService({ serviceName: data.name, category: data.category, price: data.price, duration: data.duration }).catch(console.warn); }, []);

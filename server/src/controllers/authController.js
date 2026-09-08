@@ -1,6 +1,7 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const Manager = require("../models/Manager");
+const Salon = require("../models/Salon");
 const ApiError = require("../utils/apiError");
 const { sendSuccess } = require("../utils/apiResponse");
 
@@ -32,9 +33,12 @@ const login = async (req, res, next) => {
       throw new ApiError("Invalid email or password.", 401);
     }
 
+    const salon = await Salon.findOne({ salonId: manager.salonId });
+
     const payload = {
       managerId: manager.managerId,
       salonId: manager.salonId,
+      salonName: salon?.salonName || manager.name,
       role: manager.role,
       permissions: manager.permissions,
       name: manager.name
@@ -54,6 +58,7 @@ const login = async (req, res, next) => {
           email: manager.email,
           role: manager.role,
           salonId: manager.salonId,
+          salonName: salon?.salonName || manager.name,
           permissions: manager.permissions
         }
       },

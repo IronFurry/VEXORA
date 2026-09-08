@@ -3,10 +3,12 @@ import { useAuth } from "../context/AuthContext";
 import { useNavigation } from "../context/NavigationContext";
 
 const DEMO_CREDENTIALS = [
+  { email: "looks@vexora.com", role: "Owner — Looks & Co. Studio" },
+  { email: "palghar@vexora.com", role: "Owner — Aura Style Studio (Palghar)" },
+  { email: "vasai@vexora.com", role: "Owner — Vasai Cuts & Co." },
   { email: "arjun@luxeaura.com", role: "Owner — Luxe Aura Salon" },
   { email: "neha@urbanglow.com", role: "Owner — Urban Glow Studio" },
   { email: "vikram@gentlemensclub.com", role: "Owner — The Gentlemen's Club" },
-  { email: "priya@luxeaura.com", role: "Manager — Luxe Aura Salon" },
 ];
 
 export const LoginPage = () => {

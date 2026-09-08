@@ -1,4 +1,10 @@
 const Appointment = require("../models/Appointment");
+const Customer = require("../models/Customer");
+const Salon = require("../models/Salon");
+const Staff = require("../models/Staff");
+const Service = require("../models/Service");
+const queueEngine = require("../services/queueEngine");
+const notificationService = require("../services/notificationService");
 const ApiError = require("../utils/apiError");
 const { sendSuccess } = require("../utils/apiResponse");
 
@@ -9,16 +15,46 @@ const { sendSuccess } = require("../utils/apiResponse");
 const getQueue = async (req, res, next) => {
   try {
     const { salonId } = req.manager;
-    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
 
     const queue = await Appointment.find({
       salonId,
       appointmentDate: { $gte: todayStart, $lte: todayEnd },
-      status: { $in: ["confirmed", "checked_in", "waiting", "in_service"] }
+      status: { $in: ["confirmed", "checked_in", "waiting", "in_service"] },
     }).sort({ queuePosition: 1, startTime: 1 });
 
-    return sendSuccess(res, { queue, count: queue.length });
+    const customerIds = [...new Set(queue.map((q) => q.customerId).filter(Boolean))];
+    const serviceIds = [...new Set(queue.map((q) => q.serviceId).filter(Boolean))];
+    const staffIds = [...new Set(queue.map((q) => q.staffId).filter(Boolean))];
+
+    const [customers, services, staffMembers] = await Promise.all([
+      Customer.find({ customerId: { $in: customerIds } }).select("customerId name phone"),
+      Service.find({ serviceId: { $in: serviceIds } }).select("serviceId serviceName duration price"),
+      Staff.find({ staffId: { $in: staffIds } }).select("staffId name"),
+    ]);
+
+    const customerMap = Object.fromEntries(customers.map((c) => [c.customerId, c]));
+    const serviceMap = Object.fromEntries(services.map((s) => [s.serviceId, s]));
+    const staffMap = Object.fromEntries(staffMembers.map((st) => [st.staffId, st.name]));
+
+    const enrichedQueue = queue.map((q) => {
+      const qObj = q.toObject();
+      const cust = customerMap[q.customerId];
+      const srv = serviceMap[q.serviceId];
+      return {
+        ...qObj,
+        customerName: cust?.name || q.customerId,
+        phone: cust?.phone || "",
+        serviceName: srv?.serviceName || q.serviceId,
+        staffName: staffMap[q.staffId] || q.staffId || "Any Stylist",
+        duration: srv?.duration || 30,
+      };
+    });
+
+    return sendSuccess(res, { queue: enrichedQueue, count: enrichedQueue.length });
   } catch (err) {
     next(err);
   }
@@ -37,28 +73,27 @@ const joinQueue = async (req, res, next) => {
       throw new ApiError("customerId and serviceId are required.", 400);
     }
 
-    // Find current last position
-    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
 
     const lastInQueue = await Appointment.findOne({
       salonId,
       appointmentDate: { $gte: todayStart, $lte: todayEnd },
-      status: { $in: ["waiting", "confirmed", "checked_in"] }
+      status: { $in: ["waiting", "confirmed", "checked_in"] },
     }).sort({ queuePosition: -1 });
 
     const nextPosition = (lastInQueue?.queuePosition || 0) + 1;
 
-    const Service = require("../models/Service");
     const service = await Service.findOne({ serviceId, salonId });
-    if (!service) throw new ApiError("Service not found.", 404);
-
     const count = await Appointment.countDocuments();
     const appointmentId = `APT-Q${String(count + 1).padStart(3, "0")}-${Date.now().toString().slice(-4)}`;
 
     const now = new Date();
     const startTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-    const endDate = new Date(now.getTime() + service.duration * 60 * 1000);
+    const duration = service?.duration || 30;
+    const endDate = new Date(now.getTime() + duration * 60 * 1000);
     const endTime = `${String(endDate.getHours()).padStart(2, "0")}:${String(endDate.getMinutes()).padStart(2, "0")}`;
 
     const appointment = await Appointment.create({
@@ -72,10 +107,20 @@ const joinQueue = async (req, res, next) => {
       endTime,
       bookingType: "queue",
       queuePosition: nextPosition,
-      estimatedWaitTime: (nextPosition - 1) * (service.duration || 30),
-      price: service.price,
-      status: "waiting"
+      estimatedWaitTime: Math.max(0, (nextPosition - 1) * duration),
+      price: service?.price || 500,
+      status: "waiting",
     });
+
+    // Recalculate
+    await queueEngine.recalculateQueue(salonId);
+
+    // Emit Socket.IO
+    const io = req.app.get("io");
+    if (io) {
+      io.to(`salon:${salonId}`).emit("queue:created", appointment);
+      io.emit("queue:updated", { salonId, appointmentId: appointment.appointmentId });
+    }
 
     return sendSuccess(res, { appointment, queuePosition: nextPosition }, "Added to queue.", 201);
   } catch (err) {
@@ -89,12 +134,52 @@ const joinQueue = async (req, res, next) => {
  */
 const startService = async (req, res, next) => {
   try {
+    const { appointmentId } = req.params;
+    const { salonId } = req.manager;
+
     const appointment = await Appointment.findOneAndUpdate(
-      { appointmentId: req.params.appointmentId, salonId: req.manager.salonId },
-      { $set: { status: "in_service", "checkIn.status": "checked_in", "checkIn.checkedInAt": new Date() } },
+      { appointmentId, salonId },
+      {
+        $set: {
+          status: "in_service",
+          "checkIn.status": "checked_in",
+          "checkIn.checkedInAt": new Date(),
+        },
+      },
       { new: true }
     );
+
     if (!appointment) throw new ApiError("Queue entry not found.", 404);
+
+    // Recalculate remaining wait times
+    await queueEngine.recalculateQueue(salonId);
+
+    // Notify customer via WhatsApp
+    try {
+      const customer = await Customer.findOne({ customerId: appointment.customerId });
+      const salon = await Salon.findOne({ salonId });
+      const staff = appointment.staffId ? await Staff.findOne({ staffId: appointment.staffId }) : null;
+
+      if (customer?.phone) {
+        await notificationService.sendServiceStarted({
+          phone: customer.phone,
+          customerName: customer.name,
+          ticketNumber: appointment.appointmentId.split("-")[1] || "VXR-101",
+          salonName: salon?.salonName || "Salon",
+          stylistName: staff?.name || "Your Stylist",
+        });
+      }
+    } catch (notifErr) {
+      console.warn("Could not send service_started notification:", notifErr.message);
+    }
+
+    // Emit Socket.IO
+    const io = req.app.get("io");
+    if (io) {
+      io.to(`salon:${salonId}`).emit("queue:started", { appointmentId, status: "in_service" });
+      io.emit("queue:updated", { salonId, appointmentId, status: "in_service" });
+    }
+
     return sendSuccess(res, { appointment }, "Service started.");
   } catch (err) {
     next(err);
@@ -106,12 +191,27 @@ const startService = async (req, res, next) => {
  */
 const completeService = async (req, res, next) => {
   try {
+    const { appointmentId } = req.params;
+    const { salonId } = req.manager;
+
     const appointment = await Appointment.findOneAndUpdate(
-      { appointmentId: req.params.appointmentId, salonId: req.manager.salonId },
+      { appointmentId, salonId },
       { $set: { status: "completed" } },
       { new: true }
     );
+
     if (!appointment) throw new ApiError("Queue entry not found.", 404);
+
+    // Recalculate remaining positions & ETAs
+    await queueEngine.recalculateQueue(salonId);
+
+    // Emit Socket.IO
+    const io = req.app.get("io");
+    if (io) {
+      io.to(`salon:${salonId}`).emit("queue:completed", { appointmentId, status: "completed" });
+      io.emit("queue:updated", { salonId, appointmentId, status: "completed" });
+    }
+
     return sendSuccess(res, { appointment }, "Service completed.");
   } catch (err) {
     next(err);
@@ -123,16 +223,85 @@ const completeService = async (req, res, next) => {
  */
 const cancelQueue = async (req, res, next) => {
   try {
+    const { appointmentId } = req.params;
+    const { salonId } = req.manager;
+
     const appointment = await Appointment.findOneAndUpdate(
-      { appointmentId: req.params.appointmentId, salonId: req.manager.salonId },
+      { appointmentId, salonId },
       { $set: { status: "cancelled" } },
       { new: true }
     );
+
     if (!appointment) throw new ApiError("Queue entry not found.", 404);
+
+    // Recalculate remaining positions & ETAs
+    await queueEngine.recalculateQueue(salonId);
+
+    // Emit Socket.IO
+    const io = req.app.get("io");
+    if (io) {
+      io.to(`salon:${salonId}`).emit("queue:cancelled", { appointmentId, status: "cancelled" });
+      io.emit("queue:updated", { salonId, appointmentId, status: "cancelled" });
+    }
+
     return sendSuccess(res, { appointment }, "Queue entry cancelled.");
   } catch (err) {
     next(err);
   }
 };
 
-module.exports = { getQueue, joinQueue, startService, completeService, cancelQueue };
+/**
+ * PATCH /api/queue/:appointmentId/move-up
+ * Move customer one step higher in waiting queue
+ */
+const moveUpQueue = async (req, res, next) => {
+  try {
+    const { appointmentId } = req.params;
+    const { salonId } = req.manager;
+
+    const current = await Appointment.findOne({ appointmentId, salonId });
+    if (!current) throw new ApiError("Queue entry not found.", 404);
+
+    if (current.queuePosition <= 1) {
+      return sendSuccess(res, { appointment: current }, "Customer is already first in line.");
+    }
+
+    // Find entry currently directly ahead
+    const ahead = await Appointment.findOne({
+      salonId,
+      status: { $in: ["waiting", "confirmed"] },
+      queuePosition: current.queuePosition - 1,
+    });
+
+    if (ahead) {
+      const prevPos = current.queuePosition;
+      current.queuePosition = ahead.queuePosition;
+      ahead.queuePosition = prevPos;
+      await ahead.save();
+      await current.save();
+    }
+
+    // Recalculate
+    await queueEngine.recalculateQueue(salonId);
+
+    // Emit Socket.IO
+    const io = req.app.get("io");
+    if (io) {
+      io.to(`salon:${salonId}`).emit("queue:updated", { salonId, appointmentId });
+      io.emit("queue:updated", { salonId, appointmentId });
+    }
+
+    return sendSuccess(res, { appointment: current }, "Customer moved up.");
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = {
+  getQueue,
+  joinQueue,
+  startService,
+  completeService,
+  cancelQueue,
+  moveUpQueue,
+};

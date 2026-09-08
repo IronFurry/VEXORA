@@ -7,6 +7,8 @@ import { DashboardShell } from './dashboard/DashboardShell'
 import { Onboarding } from './dashboard/Onboarding'
 import { LoginPage } from './components/LoginPage'
 
+import { CustomerQueueProvider } from './context/CustomerQueueContext'
+
 const MainRouter = () => {
   const { currentPage } = useNavigation()
   const { isAuthenticated } = useAuth()
@@ -35,7 +37,9 @@ export const AppRouter = () => {
     <NavigationProvider>
       <AuthProvider>
         <DashboardProvider>
-          <MainRouter />
+          <CustomerQueueProvider>
+            <MainRouter />
+          </CustomerQueueProvider>
         </DashboardProvider>
       </AuthProvider>
     </NavigationProvider>

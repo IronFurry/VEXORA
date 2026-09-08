@@ -1,8 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X, Check, ArrowRight, ArrowLeft, Heart, Star, MapPin,
-  Clock, Users, Scissors, Sparkles, User, Palette, Waves, Zap, ShieldCheck, QrCode
+  Clock, Users, Scissors, Sparkles, User, Palette, Waves, Zap, ShieldCheck, QrCode,
+  Compass, AlertCircle, Navigation, Download
 } from 'lucide-react';
+import { useCustomerQueue } from '../context/CustomerQueueContext';
+import { customerApi } from '../api/customerApi';
+import { downloadReceiptPng } from '../utils/receiptGenerator';
 
 /* Service Catalog for Step 01 */
 const SERVICES = [
@@ -146,23 +150,167 @@ const SALONS_DATA = [
   }
 ];
 
+/* 'Any Stylist' sentinel always available */
+const ANY_STYLIST = {
+  id: 'any',
+  staffId: 'any',
+  name: 'Any Available Stylist',
+  role: 'Fastest Queue Allocation',
+  rating: 4.9,
+  status: 'available',
+  specialization: ['Auto-assigned by workload for the shortest waiting time'],
+  badge: 'Fastest'
+};
+
 export const CustomerModal = ({
   isOpen,
   onClose,
   preselectedSalon = 'Looks & Co. Studio'
 }) => {
-  // Step flow: 1 (SERVICE) -> 2 (SALON) -> 3 (CONFIRM) -> 4 (TICKET)
+  const { setActiveTicket, activeTicket } = useCustomerQueue();
+
+  // Step flow: 1 (SERVICES) -> 2 (SALON & GEO) -> 3 (STYLIST from salon) -> 4 (CONFIRM) -> 5 (TICKET)
   const [step, setStep] = useState(1);
-  const [selectedService, setSelectedService] = useState(SERVICES[0]);
-  const [selectedSalon, setSelectedSalon] = useState(
-    SALONS_DATA.find(s => s.name.includes(preselectedSalon)) || SALONS_DATA[0]
-  );
-  const [clientName, setClientName] = useState('Aryan Sharma');
-  const [phoneNumber, setPhoneNumber] = useState('9876543210');
+  const [selectedServiceIds, setSelectedServiceIds] = useState(['haircut']);
+  const [selectedStylist, setSelectedStylist] = useState(ANY_STYLIST);
+  const [selectedSalon, setSelectedSalon] = useState(null);
+  const [salonsList, setSalonsList] = useState(SALONS_DATA);
+  const [salonStylists, setSalonStylists] = useState([ANY_STYLIST]);
+  const [clientName, setClientName] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [whatsappUpdates, setWhatsappUpdates] = useState(true);
-  const [wishlist, setWishlist] = useState(['looks-co']);
+  const [wishlist, setWishlist] = useState([]);
+  const [userCoords, setUserCoords] = useState(null);
+  const [geoStatus, setGeoStatus] = useState('detecting');
+  const [salonSort, setSalonSort] = useState('recommended');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [bookingError, setBookingError] = useState('');
+  const [createdTicket, setCreatedTicket] = useState(null);
+
+  // Logged-in manager's salonId (to boost in recommended)
+  const managerSalonId = React.useMemo(() => {
+    try {
+      const token = localStorage.getItem('vexora_token');
+      if (!token) return null;
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      return payload?.salonId || null;
+    } catch { return null; }
+  }, []);
+
+  // Request browser geolocation on modal mount
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const coords = {
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude
+          };
+          setUserCoords(coords);
+          setGeoStatus('located');
+          fetchPublicSalons(coords, salonSort);
+        },
+        (err) => {
+          console.warn('[VEXORA Geo] Geolocation denied or unavailable:', err.message);
+          // Default to Bengaluru central coordinates
+          const defaultCoords = { latitude: 12.9716, longitude: 77.5946 };
+          setUserCoords(defaultCoords);
+          setGeoStatus('default');
+          fetchPublicSalons(defaultCoords, salonSort);
+        },
+        { timeout: 6000 }
+      );
+    } else {
+      const defaultCoords = { latitude: 12.9716, longitude: 77.5946 };
+      setUserCoords(defaultCoords);
+      setGeoStatus('unsupported');
+      fetchPublicSalons(defaultCoords, salonSort);
+    }
+  }, [isOpen]);
+
+  const fetchPublicSalons = async (coords, sortType) => {
+    try {
+      const res = await customerApi.getPublicSalons({
+        lat: coords?.latitude,
+        lng: coords?.longitude,
+        sort: sortType
+      });
+      if (res.data?.salons && res.data.salons.length > 0) {
+        let salons = res.data.salons;
+        // Boost manager's own salon to top in recommended mode
+        if (managerSalonId && (sortType === 'recommended' || !sortType)) {
+          const managerSalon = salons.find(s => s.salonId === managerSalonId);
+          if (managerSalon) {
+            salons = [managerSalon, ...salons.filter(s => s.salonId !== managerSalonId)];
+          }
+        }
+        setSalonsList(salons);
+        if (!selectedSalon) {
+          setSelectedSalon(salons[0]);
+          loadStylistsForSalon(salons[0]);
+        }
+      }
+    } catch (e) {
+      console.warn('[VEXORA] Could not fetch public salons from API, using fallback data:', e.message);
+    }
+  };
+
+  const loadStylistsForSalon = (salon) => {
+    if (!salon) return;
+    const staff = salon.staff || [];
+    const stylistOptions = [ANY_STYLIST, ...staff.map(st => ({
+      id: st.staffId || st._id,
+      staffId: st.staffId || st._id,
+      name: st.name,
+      role: st.role || 'Stylist',
+      rating: st.rating || 4.7,
+      specialization: st.specialization || [],
+      status: st.status || 'active',
+      badge: st.status === 'active' ? 'Available' : 'Busy',
+    }))];
+    setSalonStylists(stylistOptions);
+    setSelectedStylist(ANY_STYLIST); // reset to 'any' when salon changes
+  };
+
+  const handleSortChange = (newSort) => {
+    setSalonSort(newSort);
+    fetchPublicSalons(userCoords, newSort);
+  };
 
   if (!isOpen) return null;
+
+  // Multi-service toggler
+  const toggleService = (id) => {
+    setSelectedServiceIds((prev) => {
+      if (prev.includes(id)) {
+        if (prev.length === 1) return prev; // At least one service required
+        return prev.filter((sId) => sId !== id);
+      } else {
+        return [...prev, id];
+      }
+    });
+  };
+
+  // Compute selected services list, total duration & total price
+  const selectedServicesObjects = SERVICES.filter((s) => selectedServiceIds.includes(s.id));
+  const totalDurationMinutes = selectedServicesObjects.reduce((acc, s) => {
+    return acc + parseInt(s.duration.replace(/[^\d]/g, '') || 30);
+  }, 0);
+
+  const calculateTotalPrice = () => {
+    return selectedServicesObjects.reduce((sum, s) => {
+      let price = parseInt(s.basePrice.replace(/[^\d]/g, '') || 400);
+      if (selectedSalon?.priceMap && selectedSalon.priceMap[s.id]) {
+        price = parseInt(selectedSalon.priceMap[s.id].replace(/[^\d]/g, '') || price);
+      }
+      return sum + price;
+    }, 0);
+  };
+
+  const totalPrice = calculateTotalPrice();
+  const serviceNamesSummary = selectedServicesObjects.map((s) => s.name).join(' + ');
 
   const toggleWishlist = (id, e) => {
     e.stopPropagation();
@@ -173,17 +321,48 @@ export const CustomerModal = ({
 
   const handleClose = () => {
     setStep(1);
+    setBookingError('');
     onClose();
   };
 
-  const currentPrice = selectedSalon.priceMap[selectedService.id] || selectedService.basePrice;
+  // Submit Booking to MongoDB API
+  const handleConfirmBooking = async (e) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    setBookingError('');
+
+    try {
+      const salonIdentifier = selectedSalon?.salonId || selectedSalon?.id || 'SAL-004';
+      const stylistId = selectedStylist?.staffId === 'any' || selectedStylist?.id === 'any' ? null : (selectedStylist?.staffId || selectedStylist?.id || null);
+      const payload = {
+        customerName: clientName.trim(),
+        phone: phoneNumber.trim(),
+        salonId: salonIdentifier,
+        serviceIds: selectedServiceIds,
+        preferredStylistId: stylistId,
+        customerCoords: userCoords
+      };
+
+      const res = await customerApi.createBooking(payload);
+      const ticket = res.data.ticket;
+
+      setCreatedTicket(ticket);
+      setActiveTicket(ticket); // Store in real-time context & activate floating widget
+      setStep(5); // Show digital ticket
+    } catch (err) {
+      console.error('[VEXORA Booking Failed]', err);
+      setBookingError(err.message || 'Failed to create live booking. Please verify details.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="modal-overlay" onClick={handleClose}>
       <div
         className="modal-content"
         style={{
-          maxWidth: step === 2 ? '680px' : '560px',
+          maxWidth: step === 3 ? '720px' : '580px',
           maxHeight: '90vh',
           overflowY: 'auto',
           padding: '36px',
@@ -216,9 +395,9 @@ export const CustomerModal = ({
           <X size={20} />
         </button>
 
-        {/* ── STEP PROGRESS BAR (Steps 1-3) ── */}
-        {step < 4 && (
-          <div style={{ marginBottom: '28px' }}>
+        {/* ── STEP PROGRESS BAR (Steps 1-4) ── */}
+        {step <= 4 && (
+          <div style={{ marginBottom: '26px' }}>
             <div style={{
               display: 'flex',
               alignItems: 'center',
@@ -227,34 +406,35 @@ export const CustomerModal = ({
             }}>
               <span style={{
                 fontFamily: 'var(--font-mono)',
-                fontSize: '0.74rem',
+                fontSize: '0.72rem',
                 letterSpacing: '0.12em',
                 color: 'var(--text-tertiary)',
                 fontWeight: 600
               }}>
-                STEP 0{step} OF 03
+                STEP 0{step} OF 04
               </span>
               <span style={{
                 fontFamily: 'var(--font-mono)',
-                fontSize: '0.74rem',
+                fontSize: '0.72rem',
                 fontWeight: 600,
                 color: 'var(--text-primary)',
                 letterSpacing: '0.06em'
               }}>
-                {step === 1 && '01 SELECT SERVICE'}
+                {step === 1 && '01 SELECT SERVICES (MULTI)'}
                 {step === 2 && '02 CHOOSE SALON'}
-                {step === 3 && '03 CONFIRM BOOKING'}
+                {step === 3 && '03 CHOOSE STYLIST'}
+                {step === 4 && '04 CONFIRM QUEUE'}
               </span>
             </div>
 
             {/* Indicator Track */}
             <div style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(3, 1fr)',
+              gridTemplateColumns: 'repeat(4, 1fr)',
               gap: '6px',
               height: '3px'
             }}>
-              {[1, 2, 3].map(i => (
+              {[1, 2, 3, 4].map(i => (
                 <div
                   key={i}
                   style={{
@@ -269,41 +449,41 @@ export const CustomerModal = ({
         )}
 
         {/* ══════════════════════════════════════════════
-            STEP 01: SELECT SERVICE
+            STEP 01: SELECT MULTIPLE SERVICES
             ══════════════════════════════════════════════ */}
         {step === 1 && (
           <div>
-            <div style={{ marginBottom: '24px' }}>
+            <div style={{ marginBottom: '20px' }}>
               <h2 style={{
                 fontSize: '1.6rem',
                 fontWeight: 700,
                 letterSpacing: '-0.03em',
                 color: 'var(--text-primary)',
-                marginBottom: '6px'
+                marginBottom: '4px'
               }}>
-                Select a Service
+                Select Services
               </h2>
-              <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                Choose the primary service you'd like to book. We'll match you with available chairs and wait times.
+              <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                Choose one or multiple services. We calculate combined duration and chair allocations in real time.
               </p>
             </div>
 
-            {/* Services Grid */}
+            {/* Services List */}
             <div style={{
               display: 'flex',
               flexDirection: 'column',
               gap: '10px',
-              marginBottom: '28px'
+              marginBottom: '20px'
             }}>
               {SERVICES.map((s) => {
-                const isSelected = selectedService.id === s.id;
+                const isSelected = selectedServiceIds.includes(s.id);
                 const IconComponent = s.icon;
                 return (
                   <div
                     key={s.id}
-                    onClick={() => setSelectedService(s)}
+                    onClick={() => toggleService(s.id)}
                     style={{
-                      padding: '14px 18px',
+                      padding: '12px 16px',
                       border: isSelected ? '1.8px solid #0a0a0a' : '1px solid var(--border-subtle)',
                       borderRadius: 'var(--radius-md)',
                       display: 'flex',
@@ -314,17 +494,11 @@ export const CustomerModal = ({
                       transition: 'all 0.18s ease',
                       gap: '14px'
                     }}
-                    onMouseEnter={(e) => {
-                      if (!isSelected) e.currentTarget.style.borderColor = 'var(--text-tertiary)';
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isSelected) e.currentTarget.style.borderColor = 'var(--border-subtle)';
-                    }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
                       <div style={{
-                        width: '38px',
-                        height: '38px',
+                        width: '36px',
+                        height: '36px',
                         borderRadius: '8px',
                         background: isSelected ? '#0a0a0a' : '#f4f4f5',
                         color: isSelected ? '#ffffff' : '#0a0a0a',
@@ -336,140 +510,251 @@ export const CustomerModal = ({
                         <IconComponent size={18} />
                       </div>
                       <div>
-                        <div style={{
-                          fontSize: '0.94rem',
-                          fontWeight: 600,
-                          color: 'var(--text-primary)'
-                        }}>
+                        <div style={{ fontSize: '0.92rem', fontWeight: 600, color: 'var(--text-primary)' }}>
                           {s.name}
                         </div>
-                        <div style={{
-                          fontSize: '0.78rem',
-                          color: 'var(--text-secondary)',
-                          lineHeight: 1.3
-                        }}>
+                        <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
                           {s.description}
                         </div>
                       </div>
                     </div>
 
                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                      <div style={{
-                        fontFamily: 'var(--font-mono)',
-                        fontSize: '0.76rem',
-                        fontWeight: 600,
-                        color: isSelected ? '#0a0a0a' : 'var(--text-secondary)',
-                        background: isSelected ? '#ffffff' : '#f4f4f5',
-                        border: '1px solid var(--border-subtle)',
-                        padding: '4px 10px',
-                        borderRadius: 'var(--radius-pill)'
-                      }}>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.88rem', fontWeight: 700, color: '#0a0a0a' }}>
+                        {s.basePrice}
+                      </div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
                         {s.duration}
                       </div>
+                    </div>
+
+                    {/* Checkbox indicator */}
+                    <div style={{
+                      width: '20px',
+                      height: '20px',
+                      borderRadius: '6px',
+                      border: isSelected ? '2px solid #0a0a0a' : '1.5px solid #d4d4d8',
+                      background: isSelected ? '#0a0a0a' : 'transparent',
+                      color: '#ffffff',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0
+                    }}>
+                      {isSelected && <Check size={13} strokeWidth={3} />}
                     </div>
                   </div>
                 );
               })}
             </div>
 
+            {/* Total Duration & Price Bar */}
+            <div style={{
+              background: '#f4f4f5',
+              borderRadius: '10px',
+              padding: '12px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: '20px'
+            }}>
+              <div>
+                <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: '#71717a', textTransform: 'uppercase', display: 'block' }}>
+                  Selected: {selectedServiceIds.length} service{selectedServiceIds.length > 1 ? 's' : ''}
+                </span>
+                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#09090b' }}>
+                  Total Duration: ~{totalDurationMinutes} mins
+                </span>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: '#71717a', textTransform: 'uppercase', display: 'block' }}>
+                  Combined Total
+                </span>
+                <span style={{ fontSize: '1.15rem', fontWeight: 800, fontFamily: 'var(--font-mono)', color: '#0a0a0a' }}>
+                  ₹{totalPrice}
+                </span>
+              </div>
+            </div>
+
             {/* Next Button */}
             <button
               onClick={() => setStep(2)}
               className="btn-primary"
+              disabled={selectedServiceIds.length === 0}
               style={{
                 width: '100%',
                 justifyContent: 'center',
                 padding: '14px',
-                fontSize: '0.96rem'
+                fontSize: '0.94rem'
               }}
             >
-              <span>Continue to Choose Salon</span>
+              <span>Find Nearby Salons</span>
               <ArrowRight size={16} strokeWidth={2} />
             </button>
           </div>
         )}
 
         {/* ══════════════════════════════════════════════
-            STEP 02: CHOOSE SALON
+            STEP 02: GEOLOCATION & SALON SELECTION (moved before stylist)
             ══════════════════════════════════════════════ */}
         {step === 2 && (
           <div>
-            <div style={{ marginBottom: '22px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+            <div style={{ marginBottom: '18px' }}>
+              <button
+                onClick={() => setStep(1)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '0.72rem',
+                  color: 'var(--text-secondary)',
+                  padding: '2px 0',
+                  marginBottom: '6px'
+                }}
+              >
+                <ArrowLeft size={13} />
+                <span>BACK TO SERVICES</span>
+              </button>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <h2 style={{
+                    fontSize: '1.6rem',
+                    fontWeight: 700,
+                    letterSpacing: '-0.03em',
+                    color: 'var(--text-primary)',
+                    marginBottom: '4px'
+                  }}>
+                    Nearby Salons with Live Queues
+                  </h2>
+                  <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
+                    Sorted by GPS distance and live waiting times for <strong>{serviceNamesSummary}</strong>.
+                  </p>
+                </div>
+
+                {/* GPS Indicator Pill */}
+                <div style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: '#f0fdf4',
+                  border: '1px solid #bbf7d0',
+                  padding: '4px 10px',
+                  borderRadius: '999px',
+                  fontSize: '0.72rem',
+                  fontFamily: 'var(--font-mono)',
+                  color: '#166534'
+                }}>
+                  <Navigation size={12} />
+                  <span>GPS Active</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Sorting Tabs */}
+            <div style={{
+              display: 'flex',
+              gap: '6px',
+              marginBottom: '16px',
+              background: '#f4f4f5',
+              padding: '4px',
+              borderRadius: '8px'
+            }}>
+              {[
+                { id: 'recommended', label: 'Recommended' },
+                { id: 'nearest', label: 'Nearest' },
+                { id: 'rating', label: 'Top Rated' },
+                { id: 'wait', label: 'Shortest Wait' }
+              ].map((tab) => (
                 <button
-                  onClick={() => setStep(1)}
+                  key={tab.id}
+                  onClick={() => handleSortChange(tab.id)}
                   style={{
-                    background: 'transparent',
+                    flex: 1,
+                    padding: '6px 10px',
                     border: 'none',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
+                    borderRadius: '6px',
+                    fontSize: '0.76rem',
                     fontFamily: 'var(--font-mono)',
-                    fontSize: '0.74rem',
-                    color: 'var(--text-secondary)',
-                    padding: '2px 0'
+                    fontWeight: salonSort === tab.id ? 700 : 500,
+                    background: salonSort === tab.id ? '#0a0a0a' : 'transparent',
+                    color: salonSort === tab.id ? '#ffffff' : '#52525b',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s'
                   }}
                 >
-                  <ArrowLeft size={13} />
-                  <span>CHANGE SERVICE ({selectedService.name})</span>
+                  {tab.label}
                 </button>
-              </div>
-              <h2 style={{
-                fontSize: '1.6rem',
-                fontWeight: 700,
-                letterSpacing: '-0.03em',
-                color: 'var(--text-primary)',
-                marginBottom: '4px'
-              }}>
-                Select Nearby Salon
-              </h2>
-              <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                Salons verified for <strong>{selectedService.name}</strong> with live queue visibility.
-              </p>
+              ))}
             </div>
 
             {/* Salons List */}
             <div style={{
               display: 'flex',
               flexDirection: 'column',
-              gap: '14px',
-              marginBottom: '26px'
+              gap: '12px',
+              marginBottom: '22px',
+              maxHeight: '380px',
+              overflowY: 'auto',
+              paddingRight: '4px'
             }}>
-              {SALONS_DATA.map((salon) => {
-                const isSelected = selectedSalon.id === salon.id;
-                const isWishlisted = wishlist.includes(salon.id);
-                const salonPrice = salon.priceMap[selectedService.id] || selectedService.basePrice;
+              {salonsList.map((salon) => {
+                const salonIdVal = salon.salonId || salon.id;
+                const isSelected = selectedSalon && (selectedSalon.salonId || selectedSalon.id) === salonIdVal;
+                const isWishlisted = wishlist.includes(salonIdVal);
+                const isManagerSalon = managerSalonId && salonIdVal === managerSalonId;
+                const distanceDisplay = salon.distance || '—';
+                const queueDisplay = salon.currentQueue ?? 0;
+                const waitDisplay = salon.waitTime || (queueDisplay === 0 ? 'Available now' : `~${Math.max(8, queueDisplay * 18)} min wait`);
+                const ratingDisplay = salon.rating || 4.8;
+                const reviewsDisplay = salon.reviewsCount || 340;
+                const salonImg = salon.images?.[0] || salon.image || 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?auto=format&fit=crop&w=600&q=80';
 
                 return (
                   <div
-                    key={salon.id}
-                    onClick={() => setSelectedSalon(salon)}
+                    key={salonIdVal}
+                    onClick={() => { setSelectedSalon(salon); loadStylistsForSalon(salon); }}
                     style={{
                       border: isSelected ? '1.8px solid #0a0a0a' : '1px solid var(--border-subtle)',
                       borderRadius: 'var(--radius-md)',
                       padding: '14px',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '16px',
+                      gap: '14px',
                       cursor: 'pointer',
                       background: isSelected ? '#fafafa' : '#ffffff',
                       transition: 'all 0.18s ease',
                       position: 'relative'
                     }}
                   >
+                    {/* Manager's salon badge */}
+                    {isManagerSalon && (
+                      <div style={{
+                        position: 'absolute', top: 8, left: 8,
+                        background: '#0a0a0a', color: '#ffffff',
+                        fontSize: '0.6rem', fontFamily: 'var(--font-mono)',
+                        padding: '2px 6px', borderRadius: '4px', fontWeight: 700,
+                        letterSpacing: '0.06em'
+                      }}>RECOMMENDED</div>
+                    )}
+
                     {/* Salon Image */}
                     <div style={{
-                      width: '84px',
-                      height: '84px',
-                      borderRadius: 'var(--radius-sm)',
+                      width: '80px',
+                      height: '80px',
+                      borderRadius: '8px',
                       overflow: 'hidden',
                       flexShrink: 0,
-                      background: '#e4e4e7'
+                      background: '#e4e4e7',
+                      marginTop: isManagerSalon ? '16px' : '0'
                     }}>
                       <img
-                        src={salon.image}
-                        alt={salon.name}
+                        src={salonImg}
+                        alt={salon.salonName || salon.name}
                         style={{
                           width: '100%',
                           height: '100%',
@@ -480,8 +765,8 @@ export const CustomerModal = ({
                     </div>
 
                     {/* Salon Info */}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <div style={{ flex: 1, minWidth: 0, marginTop: isManagerSalon ? '16px' : '0' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '3px' }}>
                         <div style={{
                           fontSize: '1rem',
                           fontWeight: 700,
@@ -490,23 +775,21 @@ export const CustomerModal = ({
                           overflow: 'hidden',
                           textOverflow: 'ellipsis'
                         }}>
-                          {salon.name}
+                          {salon.salonName || salon.name}
                         </div>
                         {/* Wishlist Heart */}
                         <button
                           type="button"
-                          onClick={(e) => toggleWishlist(salon.id, e)}
+                          onClick={(e) => toggleWishlist(salonIdVal, e)}
                           style={{
                             background: 'transparent',
                             border: 'none',
                             cursor: 'pointer',
                             padding: '4px',
-                            color: isWishlisted ? '#0a0a0a' : 'var(--text-tertiary)',
-                            transition: 'color 0.15s'
+                            color: isWishlisted ? '#0a0a0a' : 'var(--text-tertiary)'
                           }}
-                          title={isWishlisted ? 'Saved to Wishlist' : 'Add to Wishlist'}
                         >
-                          <Heart size={16} fill={isWishlisted ? '#0a0a0a' : 'none'} strokeWidth={1.8} />
+                          <Heart size={16} fill={isWishlisted ? '#0a0a0a' : 'none'} />
                         </button>
                       </div>
 
@@ -519,20 +802,14 @@ export const CustomerModal = ({
                         marginBottom: '6px'
                       }}>
                         <span style={{ display: 'flex', alignItems: 'center', gap: '2px', fontWeight: 600 }}>
-                          <Star size={12} fill="#0a0a0a" stroke="#0a0a0a" /> {salon.rating}
+                          <Star size={12} fill="#0a0a0a" stroke="#0a0a0a" /> {ratingDisplay}
                         </span>
-                        <span>({salon.reviewsCount})</span>
+                        <span>({reviewsDisplay})</span>
                         <span>·</span>
-                        <span>{salon.distance}</span>
+                        <span style={{ fontWeight: 600, color: '#0a0a0a' }}>{distanceDisplay}</span>
                       </div>
 
-                      <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        flexWrap: 'wrap'
-                      }}>
-                        {/* Live queue badge */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                         <div style={{
                           display: 'inline-flex',
                           alignItems: 'center',
@@ -549,20 +826,18 @@ export const CustomerModal = ({
                             width: '5px',
                             height: '5px',
                             borderRadius: '50%',
-                            background: isSelected ? '#ffffff' : '#0a0a0a',
-                            animation: 'svg-pulse-dot 1.8s infinite ease-in-out'
+                            background: isSelected ? '#ffffff' : '#22c55e'
                           }} />
-                          <span>{salon.waitTime} · {salon.currentQueue} in queue</span>
+                          <span>{waitDisplay} · {queueDisplay} in queue</span>
                         </div>
 
-                        {/* Price for chosen service */}
                         <span style={{
                           fontFamily: 'var(--font-mono)',
                           fontSize: '0.84rem',
                           fontWeight: 700,
                           color: 'var(--text-primary)'
                         }}>
-                          {salonPrice}
+                          ₹{totalPrice}
                         </span>
                       </div>
                     </div>
@@ -581,11 +856,12 @@ export const CustomerModal = ({
                 <ArrowLeft size={16} />
               </button>
               <button
-                onClick={() => setStep(3)}
+                onClick={() => { if (selectedSalon) setStep(3); }}
+                disabled={!selectedSalon}
                 className="btn-primary"
                 style={{ flex: 1, justifyContent: 'center', padding: '14px', fontSize: '0.96rem' }}
               >
-                <span>Continue with {selectedSalon.name.split(' ')[0]}</span>
+                <span>{selectedSalon ? `Choose Stylist at ${(selectedSalon.salonName || selectedSalon.name).split(' ')[0]}` : 'Select a Salon'}</span>
                 <ArrowRight size={16} strokeWidth={2} />
               </button>
             </div>
@@ -593,11 +869,11 @@ export const CustomerModal = ({
         )}
 
         {/* ══════════════════════════════════════════════
-            STEP 03: CONFIRM BOOKING
+            STEP 03: PREFERRED STYLIST (from selected salon)
             ══════════════════════════════════════════════ */}
         {step === 3 && (
           <div>
-            <div style={{ marginBottom: '22px' }}>
+            <div style={{ marginBottom: '20px' }}>
               <button
                 onClick={() => setStep(2)}
                 style={{
@@ -608,14 +884,14 @@ export const CustomerModal = ({
                   alignItems: 'center',
                   gap: '4px',
                   fontFamily: 'var(--font-mono)',
-                  fontSize: '0.74rem',
+                  fontSize: '0.72rem',
                   color: 'var(--text-secondary)',
                   padding: '2px 0',
-                  marginBottom: '4px'
+                  marginBottom: '6px'
                 }}
               >
                 <ArrowLeft size={13} />
-                <span>CHANGE SALON</span>
+                <span>BACK TO SALONS</span>
               </button>
               <h2 style={{
                 fontSize: '1.6rem',
@@ -624,97 +900,227 @@ export const CustomerModal = ({
                 color: 'var(--text-primary)',
                 marginBottom: '4px'
               }}>
-                Confirm Live Reservation
+                Choose a Stylist
               </h2>
-              <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                Your position will be locked in the real-time queue immediately.
+              <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
+                Stylists at <strong>{selectedSalon?.salonName || selectedSalon?.name}</strong>. Pick one or choose <strong>Any Stylist</strong> for the shortest wait.
               </p>
             </div>
 
-            {/* Booking Summary Card */}
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+              marginBottom: '24px'
+            }}>
+              {salonStylists.map((stylist) => {
+                const isSelected = selectedStylist.id === stylist.id || selectedStylist.staffId === stylist.staffId;
+                return (
+                  <div
+                    key={stylist.id || stylist.staffId}
+                    onClick={() => setSelectedStylist(stylist)}
+                    style={{
+                      padding: '14px 16px',
+                      border: isSelected ? '1.8px solid #0a0a0a' : '1px solid var(--border-subtle)',
+                      borderRadius: 'var(--radius-md)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      cursor: 'pointer',
+                      background: isSelected ? '#fafafa' : '#ffffff',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                      <div style={{
+                        width: '40px',
+                        height: '40px',
+                        borderRadius: '50%',
+                        background: isSelected ? '#0a0a0a' : '#f4f4f5',
+                        color: isSelected ? '#ffffff' : '#0a0a0a',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontFamily: 'var(--font-mono)',
+                        fontWeight: 700,
+                        fontSize: '0.85rem'
+                      }}>
+                        {stylist.id === 'any' ? <Scissors size={18} /> : stylist.name.split(' ').map(w => w[0]).join('').slice(0, 2)}
+                      </div>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '0.94rem', fontWeight: 700, color: '#0a0a0a' }}>
+                            {stylist.name}
+                          </span>
+                          <span style={{
+                            fontSize: '0.68rem',
+                            fontFamily: 'var(--font-mono)',
+                            padding: '2px 6px',
+                            background: isSelected ? '#0a0a0a' : '#f4f4f5',
+                            color: isSelected ? '#ffffff' : '#52525b',
+                            borderRadius: '4px',
+                            fontWeight: 600
+                          }}>
+                            {stylist.badge || 'Available'}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.76rem', color: '#71717a', marginTop: '2px' }}>
+                          {stylist.role} · ★ {stylist.rating}
+                          {stylist.specialization?.length > 0 && ` · ${stylist.specialization.slice(0, 2).join(', ')}`}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{
+                      width: '18px',
+                      height: '18px',
+                      borderRadius: '50%',
+                      border: isSelected ? '5px solid #0a0a0a' : '1.5px solid #d4d4d8',
+                      background: '#ffffff'
+                    }} />
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button
+                onClick={() => setStep(2)}
+                className="btn-secondary"
+                style={{ flex: '0 0 auto', padding: '14px 20px' }}
+              >
+                <ArrowLeft size={16} />
+              </button>
+              <button
+                onClick={() => setStep(4)}
+                className="btn-primary"
+                style={{ flex: 1, justifyContent: 'center', padding: '14px', fontSize: '0.96rem' }}
+              >
+                <span>Review Booking Details</span>
+                <ArrowRight size={16} strokeWidth={2} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════════
+            STEP 04: CONFIRM BOOKING & DETAILS
+            ══════════════════════════════════════════════ */}
+        {step === 4 && (
+          <div>
+            <div style={{ marginBottom: '18px' }}>
+              <button
+                onClick={() => setStep(3)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '0.72rem',
+                  color: 'var(--text-secondary)',
+                  padding: '2px 0',
+                  marginBottom: '6px'
+                }}
+              >
+                <ArrowLeft size={13} />
+                <span>BACK TO STYLIST</span>
+              </button>
+              <h2 style={{
+                fontSize: '1.6rem',
+                fontWeight: 700,
+                letterSpacing: '-0.03em',
+                color: 'var(--text-primary)',
+                marginBottom: '4px'
+              }}>
+                Confirm Queue Reservation
+              </h2>
+              <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
+                Your ticket will be stored in MongoDB and updated in real time as chairs advance.
+              </p>
+            </div>
+
+            {/* Booking Summary Box */}
             <div style={{
               background: '#0a0a0a',
               color: '#ffffff',
               borderRadius: 'var(--radius-md)',
-              padding: '20px',
-              marginBottom: '22px'
+              padding: '18px 20px',
+              marginBottom: '20px'
             }}>
               <div style={{
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'flex-start',
                 borderBottom: '1px solid #27272a',
-                paddingBottom: '14px',
-                marginBottom: '14px'
+                paddingBottom: '12px',
+                marginBottom: '12px'
               }}>
                 <div>
-                  <div style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '0.7rem',
-                    color: '#a1a1aa',
-                    letterSpacing: '0.1em',
-                    marginBottom: '4px'
-                  }}>
-                    SELECTED SALON
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: '#a1a1aa', letterSpacing: '0.1em' }}>
+                    SALON &amp; STYLIST
                   </div>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 700 }}>
-                    {selectedSalon.name}
+                  <div style={{ fontSize: '1.05rem', fontWeight: 700 }}>
+                    {selectedSalon?.salonName || selectedSalon?.name || '—'}
                   </div>
-                  <div style={{ fontSize: '0.78rem', color: '#a1a1aa' }}>
-                    {selectedSalon.address}
+                  <div style={{ fontSize: '0.78rem', color: '#d4d4d8' }}>
+                    Stylist: {selectedStylist?.name || 'Any Stylist'}
                   </div>
                 </div>
 
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '0.7rem',
-                    color: '#a1a1aa',
-                    letterSpacing: '0.1em',
-                    marginBottom: '4px'
-                  }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: '#a1a1aa', letterSpacing: '0.1em' }}>
                     ESTIMATED SEAT
                   </div>
-                  <div style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '1.05rem',
-                    fontWeight: 700
-                  }}>
-                    {selectedSalon.waitTime}
-                  </div>
-                  <div style={{ fontSize: '0.74rem', color: '#a1a1aa' }}>
-                    {selectedSalon.currentQueue} in line
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.1rem', fontWeight: 700 }}>
+                    {selectedSalon?.waitTime || '~18 min wait'}
                   </div>
                 </div>
               </div>
 
-              {/* Service Details Row */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <div style={{ fontSize: '0.92rem', fontWeight: 600 }}>
-                    {selectedService.name}
+                  <div style={{ fontSize: '0.88rem', fontWeight: 600 }}>
+                    {serviceNamesSummary}
                   </div>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: '#a1a1aa' }}>
-                    Duration: {selectedService.duration}
+                    Duration: ~{totalDurationMinutes} mins
                   </div>
                 </div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.1rem', fontWeight: 700 }}>
-                  {currentPrice}
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.2rem', fontWeight: 800 }}>
+                  ₹{totalPrice}
                 </div>
               </div>
             </div>
 
-            {/* Client Details Form */}
-            <form onSubmit={(e) => { e.preventDefault(); setStep(4); }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '16px' }}>
+            {/* Error Message */}
+            {bookingError && (
+              <div style={{
+                background: '#fef2f2',
+                border: '1px solid #fecaca',
+                color: '#dc2626',
+                borderRadius: '8px',
+                padding: '10px 14px',
+                fontSize: '0.82rem',
+                marginBottom: '16px'
+              }}>
+                {bookingError}
+              </div>
+            )}
+
+            {/* Customer Inputs Form */}
+            <form onSubmit={handleConfirmBooking}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
                 <div>
                   <label style={{
                     display: 'block',
                     fontFamily: 'var(--font-mono)',
-                    fontSize: '0.72rem',
+                    fontSize: '0.7rem',
                     letterSpacing: '0.08em',
                     color: 'var(--text-muted)',
-                    marginBottom: '6px'
+                    marginBottom: '4px'
                   }}>
                     YOUR NAME
                   </label>
@@ -725,12 +1131,13 @@ export const CustomerModal = ({
                     onChange={(e) => setClientName(e.target.value)}
                     style={{
                       width: '100%',
-                      padding: '10px 14px',
+                      padding: '10px 12px',
                       border: '1px solid var(--border-subtle)',
                       borderRadius: 'var(--radius-sm)',
                       fontSize: '0.9rem',
-                      fontFamily: 'var(--font-body)',
-                      background: 'var(--bg-white)'
+                      fontFamily: 'inherit',
+                      background: 'var(--bg-white)',
+                      boxSizing: 'border-box'
                     }}
                   />
                 </div>
@@ -739,10 +1146,10 @@ export const CustomerModal = ({
                   <label style={{
                     display: 'block',
                     fontFamily: 'var(--font-mono)',
-                    fontSize: '0.72rem',
+                    fontSize: '0.7rem',
                     letterSpacing: '0.08em',
                     color: 'var(--text-muted)',
-                    marginBottom: '6px'
+                    marginBottom: '4px'
                   }}>
                     MOBILE NUMBER
                   </label>
@@ -751,14 +1158,16 @@ export const CustomerModal = ({
                     required
                     value={phoneNumber}
                     onChange={(e) => setPhoneNumber(e.target.value)}
+                    placeholder="9876543210"
                     style={{
                       width: '100%',
-                      padding: '10px 14px',
+                      padding: '10px 12px',
                       border: '1px solid var(--border-subtle)',
                       borderRadius: 'var(--radius-sm)',
                       fontSize: '0.9rem',
                       fontFamily: 'var(--font-mono)',
-                      background: 'var(--bg-white)'
+                      background: 'var(--bg-white)',
+                      boxSizing: 'border-box'
                     }}
                   />
                 </div>
@@ -769,9 +1178,9 @@ export const CustomerModal = ({
                 display: 'flex',
                 alignItems: 'center',
                 gap: '10px',
-                fontSize: '0.82rem',
+                fontSize: '0.8rem',
                 color: 'var(--text-secondary)',
-                marginBottom: '24px',
+                marginBottom: '20px',
                 cursor: 'pointer'
               }}>
                 <input
@@ -780,12 +1189,13 @@ export const CustomerModal = ({
                   onChange={(e) => setWhatsappUpdates(e.target.checked)}
                   style={{ accentColor: '#0a0a0a', width: '16px', height: '16px' }}
                 />
-                <span>Send second-by-second live queue telemetry via WhatsApp &amp; SMS</span>
+                <span>Send WhatsApp notifications with travel time alerts when it's time to leave</span>
               </label>
 
               {/* Submit CTA */}
               <button
                 type="submit"
+                disabled={isSubmitting}
                 className="btn-primary"
                 style={{
                   width: '100%',
@@ -794,7 +1204,7 @@ export const CustomerModal = ({
                   fontSize: '0.98rem'
                 }}
               >
-                <span>Confirm &amp; Generate Live Ticket</span>
+                <span>{isSubmitting ? 'Reserving in MongoDB Live Queue…' : 'Confirm & Generate Live Queue Pass'}</span>
                 <ArrowRight size={16} strokeWidth={2} />
               </button>
             </form>
@@ -802,9 +1212,9 @@ export const CustomerModal = ({
         )}
 
         {/* ══════════════════════════════════════════════
-            STEP 04: LIVE DIGITAL TICKET ISSUED
+            STEP 05: DIGITAL QUEUE TICKET (CREATED)
             ══════════════════════════════════════════════ */}
-        {step === 4 && (
+        {step === 5 && (
           <div style={{ textAlign: 'center' }}>
             <div style={{
               width: '48px',
@@ -815,30 +1225,30 @@ export const CustomerModal = ({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              margin: '0 auto 16px auto'
+              margin: '0 auto 14px auto'
             }}>
               <Check size={26} strokeWidth={2.5} />
             </div>
 
             <span className="eyebrow" style={{ color: 'var(--text-secondary)' }}>
-              RESERVATION CONFIRMED · TICKET ISSUED
+              MONGODB RESERVATION CONFIRMED · LIVE TICKET ISSUED
             </span>
             <h2 style={{
-              fontSize: '1.8rem',
-              fontWeight: 700,
+              fontSize: '1.75rem',
+              fontWeight: 800,
               letterSpacing: '-0.03em',
-              marginBottom: '20px'
+              marginBottom: '16px'
             }}>
-              You are #{selectedSalon.currentQueue + 1} in queue.
+              You are #{createdTicket?.queuePosition || 2} in line.
             </h2>
 
-            {/* Realistic Digital Physical Ticket Card */}
+            {/* Realistic Digital Ticket Card */}
             <div style={{
               border: '1.5px solid #0a0a0a',
               borderRadius: '16px',
               padding: '24px',
               maxWidth: '380px',
-              margin: '0 auto 24px auto',
+              margin: '0 auto 20px auto',
               background: '#ffffff',
               position: 'relative',
               boxShadow: '0 12px 30px rgba(0,0,0,0.08)'
@@ -849,8 +1259,8 @@ export const CustomerModal = ({
                 justifyContent: 'space-between',
                 alignItems: 'center',
                 borderBottom: '1px dashed #d4d4d8',
-                paddingBottom: '14px',
-                marginBottom: '18px'
+                paddingBottom: '12px',
+                marginBottom: '16px'
               }}>
                 <span style={{
                   fontFamily: 'var(--font-heading)',
@@ -862,11 +1272,12 @@ export const CustomerModal = ({
                 </span>
                 <span style={{
                   fontFamily: 'var(--font-mono)',
-                  fontSize: '0.72rem',
+                  fontSize: '0.78rem',
+                  fontWeight: 700,
                   letterSpacing: '0.08em',
-                  color: 'var(--text-muted)'
+                  color: '#0a0a0a'
                 }}>
-                  TKT-07842
+                  #{createdTicket?.ticketNumber || 'VXR-104'}
                 </span>
               </div>
 
@@ -874,7 +1285,7 @@ export const CustomerModal = ({
               <div style={{ marginBottom: '14px' }}>
                 <span style={{
                   fontFamily: 'var(--font-mono)',
-                  fontSize: '0.72rem',
+                  fontSize: '0.7rem',
                   letterSpacing: '0.12em',
                   color: 'var(--text-tertiary)',
                   display: 'block'
@@ -883,7 +1294,7 @@ export const CustomerModal = ({
                 </span>
                 <span style={{
                   fontFamily: 'var(--font-heading)',
-                  fontSize: '3.8rem',
+                  fontSize: '3.6rem',
                   fontWeight: 800,
                   letterSpacing: '-0.04em',
                   lineHeight: 1,
@@ -891,14 +1302,14 @@ export const CustomerModal = ({
                   color: '#0a0a0a',
                   margin: '4px 0'
                 }}>
-                  07
+                  #{createdTicket?.queuePosition || 2}
                 </span>
                 <span style={{
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '6px',
                   fontFamily: 'var(--font-mono)',
-                  fontSize: '0.76rem',
+                  fontSize: '0.78rem',
                   fontWeight: 600,
                   background: '#f4f4f5',
                   padding: '4px 10px',
@@ -908,10 +1319,9 @@ export const CustomerModal = ({
                     width: '6px',
                     height: '6px',
                     borderRadius: '50%',
-                    background: '#0a0a0a',
-                    animation: 'svg-pulse-dot 1.8s infinite ease-in-out'
+                    background: '#22c55e'
                   }} />
-                  Estimated seat: {selectedSalon.waitTime}
+                  Estimated wait: ~{createdTicket?.estimatedWaitTime || 18} mins (Arrive by {createdTicket?.arriveBy || '1:45 PM'})
                 </span>
               </div>
 
@@ -922,16 +1332,42 @@ export const CustomerModal = ({
                 padding: '12px 14px',
                 textAlign: 'left',
                 fontSize: '0.84rem',
-                marginBottom: '16px'
+                marginBottom: '14px'
               }}>
                 <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: '2px' }}>
-                  {selectedSalon.name}
+                  {createdTicket?.salonName || selectedSalon.salonName || selectedSalon.name}
                 </div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
-                  {selectedService.name} · {currentPrice}
+                  Stylist: <strong>{createdTicket?.stylistName || selectedStylist.name}</strong>
+                </div>
+                <div style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', marginTop: '2px' }}>
+                  {serviceNamesSummary} · ₹{totalPrice}
                 </div>
                 <div style={{ color: 'var(--text-muted)', fontSize: '0.74rem', marginTop: '4px' }}>
                   Guest: {clientName} (+91 {phoneNumber})
+                </div>
+              </div>
+
+              {/* WhatsApp notification pill */}
+              <div style={{
+                background: '#f0fdf4',
+                border: '1px solid #bbf7d0',
+                borderRadius: '8px',
+                padding: '8px 12px',
+                fontSize: '0.74rem',
+                color: '#166534',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                textAlign: 'left',
+                marginBottom: '12px'
+              }}>
+                <span style={{ fontSize: '1rem' }}>💬</span>
+                <div>
+                  <strong>WhatsApp Notification Delivered</strong>
+                  <div style={{ fontSize: '0.7rem', color: '#15803d' }}>
+                    We'll message you when your travel time matches the queue ETA.
+                  </div>
                 </div>
               </div>
 
@@ -945,17 +1381,41 @@ export const CustomerModal = ({
                 color: 'var(--text-muted)'
               }}>
                 <ShieldCheck size={14} />
-                <span>Verified GPS Queue Allocation</span>
+                <span>Verified GPS Queue Allocation · Real-Time Socket Active</span>
               </div>
             </div>
 
-            <button
-              onClick={handleClose}
-              className="btn-primary"
-              style={{ padding: '14px 32px', fontSize: '0.94rem' }}
-            >
-              Done · Return to Home
-            </button>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => downloadReceiptPng(createdTicket || activeTicket)}
+                style={{
+                  padding: '13px 22px',
+                  borderRadius: '10px',
+                  border: '1.5px solid #0a0a0a',
+                  background: '#ffffff',
+                  color: '#0a0a0a',
+                  fontWeight: 600,
+                  fontSize: '0.9rem',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <Download size={16} />
+                <span>Download Receipt (PNG)</span>
+              </button>
+
+              <button
+                onClick={handleClose}
+                className="btn-primary"
+                style={{ padding: '14px 28px', fontSize: '0.94rem' }}
+              >
+                Done · Floating Pass Active
+              </button>
+            </div>
           </div>
         )}
       </div>

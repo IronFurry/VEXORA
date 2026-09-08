@@ -1,12 +1,20 @@
 const express = require("express");
 const router = express.Router();
-const { getMySalon, updateSalon, getNearbySalons } = require("../controllers/salonController");
+const {
+  getMySalon,
+  updateSalon,
+  getNearbySalons,
+  getAllPublicSalons,
+} = require("../controllers/salonController");
 const { protect, requirePermission } = require("../middleware/auth");
 
-router.get("/nearby", getNearbySalons); // Public
+// Public endpoints
+router.get("/public", getAllPublicSalons);
+router.get("/nearby", getNearbySalons);
 
+// Protected manager endpoints
 router.use(protect);
 router.get("/", getMySalon);
-router.patch("/", requirePermission("manage_services"), updateSalon); // Assuming manage_services gives some control, or maybe we need manage_salon
+router.patch("/", requirePermission("manage_services"), updateSalon);
 
 module.exports = router;

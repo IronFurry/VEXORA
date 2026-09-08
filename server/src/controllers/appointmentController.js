@@ -1,5 +1,7 @@
 const Appointment = require("../models/Appointment");
 const Service = require("../models/Service");
+const Customer = require("../models/Customer");
+const Staff = require("../models/Staff");
 const ApiError = require("../utils/apiError");
 const { sendSuccess } = require("../utils/apiResponse");
 
@@ -21,10 +23,38 @@ const getAppointments = async (req, res, next) => {
     if (req.query.customerId) filter.customerId = req.query.customerId;
 
     const appointments = await Appointment.find(filter)
-      .sort({ appointmentDate: 1, startTime: 1 })
+      .sort({ appointmentDate: -1, createdAt: -1 })
       .limit(parseInt(req.query.limit) || 100);
 
-    return sendSuccess(res, { appointments, count: appointments.length });
+    const customerIds = [...new Set(appointments.map((a) => a.customerId).filter(Boolean))];
+    const serviceIds = [...new Set(appointments.map((a) => a.serviceId).filter(Boolean))];
+    const staffIds = [...new Set(appointments.map((a) => a.staffId).filter(Boolean))];
+
+    const [customers, services, staffMembers] = await Promise.all([
+      Customer.find({ customerId: { $in: customerIds } }).select("customerId name phone"),
+      Service.find({ serviceId: { $in: serviceIds } }).select("serviceId serviceName duration price"),
+      Staff.find({ staffId: { $in: staffIds } }).select("staffId name"),
+    ]);
+
+    const customerMap = Object.fromEntries(customers.map((c) => [c.customerId, c]));
+    const serviceMap = Object.fromEntries(services.map((s) => [s.serviceId, s]));
+    const staffMap = Object.fromEntries(staffMembers.map((st) => [st.staffId, st.name]));
+
+    const enrichedAppointments = appointments.map((a) => {
+      const aObj = a.toObject();
+      const cust = customerMap[a.customerId];
+      const srv = serviceMap[a.serviceId];
+      return {
+        ...aObj,
+        customerName: cust?.name || a.customerId,
+        phone: cust?.phone || "",
+        serviceName: srv?.serviceName || a.serviceId,
+        staffName: staffMap[a.staffId] || a.staffId || "Any Stylist",
+        duration: srv?.duration || 30,
+      };
+    });
+
+    return sendSuccess(res, { appointments: enrichedAppointments, count: enrichedAppointments.length });
   } catch (err) {
     next(err);
   }

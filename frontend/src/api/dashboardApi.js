@@ -20,6 +20,9 @@ export const dashboardApi = {
   /** PATCH /api/queue/:id/cancel */
   cancelQueue: (appointmentId) => api.patch(`/queue/${appointmentId}/cancel`),
 
+  /** PATCH /api/queue/:id/move-up */
+  moveUp: (appointmentId) => api.patch(`/queue/${appointmentId}/move-up`),
+
   /** GET /api/appointments */
   getAppointments: (params = {}) => {
     const qs = new URLSearchParams(params).toString();

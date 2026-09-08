@@ -1,5 +1,6 @@
 import React from "react";
 import { useDashboard } from "../../context/DashboardContext";
+import { useAuth } from "../../context/AuthContext";
 import { Users, DollarSign, Clock, Activity, Calendar, Zap } from "lucide-react";
 
 const statusColor = { "in-service": "#16a34a", waiting: "#d97706", cancelled: "#dc2626" };
@@ -7,6 +8,7 @@ const statusLabel = { "in-service": "In Service", waiting: "Waiting", cancelled:
 
 export const Overview = () => {
   const { queue, appointments, staff, completedToday, revenueToday, notifications } = useDashboard();
+  const { manager } = useAuth();
   const activeQueue = queue.filter(q => q.status !== "cancelled").length;
   const inService = queue.filter(q => q.status === "in-service").length;
   const avgWait = queue.length ? Math.round(queue.reduce((s, q) => s + q.eta, 0) / queue.length) : 0;
@@ -25,7 +27,9 @@ export const Overview = () => {
   return (
     <div>
       <div style={{ marginBottom: 32 }}>
-        <h1 style={{ fontSize: "1.6rem", fontWeight: 800, letterSpacing: "-0.03em", marginBottom: 4 }}>Good afternoon, Looks & Co.</h1>
+        <h1 style={{ fontSize: "1.6rem", fontWeight: 800, letterSpacing: "-0.03em", marginBottom: 4 }}>
+          Good afternoon, {manager?.salonName || manager?.name || 'Partner Salon'}
+        </h1>
         <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>Here's what's happening at your salon today.</p>
       </div>
 
