@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowRight, Menu, X } from 'lucide-react';
+import { ArrowRight, Menu, X, UserCircle2 } from 'lucide-react';
 
-export const Navbar = ({ currentRole, onSelectRole, onOpenCustomerModal, onOpenSalonModal }) => {
+export const Navbar = ({ currentRole, onSelectRole, onOpenCustomerModal, onOpenSalonModal, onOpenProfile }) => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const isSalon = currentRole === 'salon';
@@ -167,6 +167,36 @@ export const Navbar = ({ currentRole, onSelectRole, onOpenCustomerModal, onOpenS
               >
                 <span>Salon Portal</span>
                 <ArrowRight size={13} strokeWidth={2} />
+              </button>
+            )}
+
+            {/* Profile Avatar Button */}
+            {!isSalon && (
+              <button
+                onClick={onOpenProfile}
+                aria-label="Open customer profile"
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: '50%',
+                  background: '#0a0a0a',
+                  color: '#fff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  letterSpacing: '0.05em',
+                  border: '2px solid #0a0a0a',
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                  transition: 'opacity 0.15s',
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'}
+                onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+              >
+                AR
               </button>
             )}
 

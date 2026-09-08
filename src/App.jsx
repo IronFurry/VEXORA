@@ -11,11 +11,13 @@ import { Features } from './components/Features.jsx';
 import { FinalCta } from './components/FinalCta.jsx';
 import { Footer } from './components/Footer.jsx';
 import { CustomerModal, SalonModal } from './components/Modals.jsx';
+import { CustomerProfile } from './components/CustomerProfile.jsx';
 
 export const App = () => {
   const [currentRole, setCurrentRole] = useState('customer');
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
   const [salonModalOpen, setSalonModalOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [selectedSalonForModal, setSelectedSalonForModal] = useState('Looks & Co. Studio');
   const [roleFlash, setRoleFlash] = useState(null);
 
@@ -84,6 +86,7 @@ export const App = () => {
         onSelectRole={handleSelectRole}
         onOpenCustomerModal={() => handleOpenCustomerModalWithSalon('Looks & Co. Studio')}
         onOpenSalonModal={() => setSalonModalOpen(true)}
+        onOpenProfile={() => setProfileOpen(true)}
       />
 
       {/* ── Main Page Flow in Exact Required Order ── */}
@@ -130,6 +133,16 @@ export const App = () => {
 
       {/* ── Minimalist Editorial Footer ── */}
       <Footer />
+
+      {/* ── Customer Profile Panel ── */}
+      <CustomerProfile
+        isOpen={profileOpen}
+        onClose={() => setProfileOpen(false)}
+        onBookSalon={(name) => {
+          setProfileOpen(false);
+          handleOpenCustomerModalWithSalon(name);
+        }}
+      />
 
       {/* ── 3-Step Interactive Booking Flow Modal ── */}
       <CustomerModal
