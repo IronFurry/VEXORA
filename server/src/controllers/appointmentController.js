@@ -2,6 +2,7 @@ const Appointment = require("../models/Appointment");
 const Service = require("../models/Service");
 const Customer = require("../models/Customer");
 const Staff = require("../models/Staff");
+const Payment = require("../models/Payment");
 const ApiError = require("../utils/apiError");
 const { sendSuccess } = require("../utils/apiResponse");
 
@@ -129,6 +130,32 @@ const updateAppointmentStatus = async (req, res, next) => {
     );
 
     if (!appointment) throw new ApiError("Appointment not found.", 404);
+
+    if (status === "completed") {
+      try {
+        let payment = await Payment.findOne({ appointmentId: appointment.appointmentId });
+        if (!payment) {
+          const pCount = await Payment.countDocuments();
+          const paymentId = `PAY-${String(pCount + 1).padStart(3, "0")}-${Date.now().toString().slice(-4)}`;
+          payment = await Payment.create({
+            paymentId,
+            appointmentId: appointment.appointmentId,
+            customerId: appointment.customerId || "CUST-WALKIN",
+            salonId: req.manager.salonId,
+            amount: appointment.price || 450,
+            paymentGateway: "cash",
+            paymentMethod: "cash",
+            status: "paid",
+            paymentTime: new Date(),
+          });
+          appointment.paymentId = paymentId;
+          await appointment.save();
+        }
+      } catch (pErr) {
+        console.warn("Could not auto-create payment on status completed:", pErr.message);
+      }
+    }
+
     return sendSuccess(res, { appointment }, `Appointment status updated to ${status}.`);
   } catch (err) {
     next(err);

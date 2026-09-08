@@ -61,8 +61,18 @@ const getOverview = async (req, res, next) => {
         .select("rating comment customerId createdAt")
     ]);
 
-    const revenueToday = todayPayments[0]?.total || 0;
-    const transactionsToday = todayPayments[0]?.count || 0;
+    const paymentSum = todayPayments[0]?.total || 0;
+    const paymentCount = todayPayments[0]?.count || 0;
+
+    // Check completed appointments today to ensure all revenue is captured
+    const completedApts = await Appointment.find({
+      salonId,
+      appointmentDate: { $gte: todayStart, $lte: todayEnd },
+      status: "completed"
+    });
+    const aptRevenue = completedApts.reduce((sum, a) => sum + (a.price || 0), 0);
+    const revenueToday = Math.max(paymentSum, aptRevenue);
+    const transactionsToday = Math.max(paymentCount, completedApts.length);
 
     // In-service count
     const inServiceCount = await Appointment.countDocuments({

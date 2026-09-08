@@ -45,6 +45,51 @@ export const LiveQueue = () => {
     setIsAddModalOpen(false)
   }
 
+  const handleComplete = async (item) => {
+    completeService(item.id)
+
+    const remainingWaiting = queue.filter(q => q.id !== item.id && (q.status === 'waiting' || q.status === 'in-service'))
+    const pos2Customer = remainingWaiting.find(q => q.queuePosition === 2 || q.pos === 2) || remainingWaiting[1] || remainingWaiting[0] || item
+
+    const queuePosition = 2
+    const user = {
+      phoneNumber: pos2Customer?.phone || item?.phone || "9876543210",
+      name: pos2Customer?.customerName || pos2Customer?.customer || item?.customerName || "Customer"
+    }
+    const appointment = {
+      time: pos2Customer?.time || item?.time || "10:00 AM"
+    }
+
+    if (queuePosition === 2) {
+
+        try {
+            await fetch(
+                "http://192.168.137.34:5000/api/notifications/send",
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        phoneNumber: user.phoneNumber,
+                        type: "QUEUE_POSITION_2",
+                        data: {
+                            userName: user.name,
+                            appointmentTime: appointment.time
+                        }
+                    })
+                }
+            );
+
+        } catch (error) {
+            console.error(
+                "Queue notification error:",
+                error.message
+            );
+        }
+    }
+  }
+
   const getStatusBadge = (status) => {
     switch (status) {
       case 'in-service':
@@ -234,7 +279,7 @@ export const LiveQueue = () => {
                           {item.status === 'in-service' && (
                             <>
                               <button
-                                onClick={() => completeService(item.id)}
+                                onClick={() => handleComplete(item)}
                                 className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-600 text-white rounded text-[11px] font-medium hover:bg-emerald-700 transition-colors"
                                 title="Complete Service"
                               >

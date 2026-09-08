@@ -58,8 +58,11 @@ const initAppointments = [
 const initialState = {
   queue: initQueue, appointments: initAppointments, customers: MOCK_CUSTOMERS,
   staff: MOCK_STAFF, services: MOCK_SERVICES, inventory: MOCK_INVENTORY,
-  reviews: MOCK_REVIEWS, coupons: MOCK_COUPONS, completedToday: 23,
-  revenueToday: 18400,
+  reviews: MOCK_REVIEWS, coupons: MOCK_COUPONS, completedToday: 0,
+  revenueToday: 0,
+  transactionsToday: 0,
+  attendanceMap: {},
+  attendanceSummary: { total: 0, present: 0, late: 0, halfDay: 0, absent: 0 },
   notifications: [
     { id: 1, text: "Sameer Ali joined the queue", time: "2 min ago", type: "join" },
     { id: 2, text: "Precision Fade started - Vikram", time: "8 min ago", type: "start" },
@@ -105,7 +108,25 @@ function dashboardReducer(state, action) {
     case "ADD_SERVICE": return { ...state, services: [...state.services, { id: Date.now(), name: action.name, category: action.category, duration: action.duration, price: action.price, available: true }] };
     case "TOGGLE_COUPON": return { ...state, coupons: state.coupons.map(c => c.id === action.id ? { ...c, active: !c.active } : c) };
     case "ADD_COUPON": return { ...state, coupons: [...state.coupons, { id: Date.now(), code: action.code, type: action.couponType, value: action.value, minOrder: action.minOrder, expiry: action.expiry, used: 0, active: true, description: action.description }] };
-    case "TOGGLE_STAFF_STATUS": return { ...state, staff: state.staff.map(s => s.id === action.id ? { ...s, status: { available: "break", break: "available", "in-service": "available" }[s.status] } : s) };
+    case "TOGGLE_STAFF_STATUS": return { ...state, staff: state.staff.map(s => s.id === action.id || s.staffId === action.id ? { ...s, status: { available: "break", break: "available", "in-service": "available" }[s.status] || "available" } : s) };
+    case "ADD_STAFF": return { ...state, staff: [...state.staff, action.payload] };
+    case "REMOVE_STAFF": return { ...state, staff: state.staff.filter(s => s.id !== action.id && s.staffId !== action.id) };
+    case "UPDATE_ATTENDANCE": {
+      const { staffId, attendance } = action.payload;
+      const updatedMap = { ...state.attendanceMap, [staffId]: attendance };
+      const records = Object.values(updatedMap);
+      return {
+        ...state,
+        attendanceMap: updatedMap,
+        attendanceSummary: {
+          total: state.staff.length,
+          present: records.filter(a => a?.status === "present").length,
+          late: records.filter(a => a?.status === "late").length,
+          halfDay: records.filter(a => a?.status === "half_day").length,
+          absent: records.filter(a => a?.status === "absent" || a?.status === "leave").length,
+        }
+      };
+    }
     default: return state;
   }
 }
@@ -120,14 +141,15 @@ export const DashboardProvider = ({ children }) => {
     if (!token) { setIsApiLoading(false); return; }
 
     try {
-      const [overviewRes, queueRes, appointmentsRes, servicesRes, staffRes, inventoryRes, reviewsRes, couponsRes, customersRes] = await Promise.allSettled([
+      const [overviewRes, queueRes, appointmentsRes, servicesRes, staffRes, inventoryRes, reviewsRes, couponsRes, customersRes, attendanceRes] = await Promise.allSettled([
         dashboardApi.getOverview(), dashboardApi.getQueue(), dashboardApi.getAppointments({ limit: 50 }),
         dashboardApi.getServices(), dashboardApi.getStaff(), dashboardApi.getInventory(),
         dashboardApi.getReviews(), dashboardApi.getCoupons(), dashboardApi.getCustomers({ limit: 100 }),
+        dashboardApi.getTodayAttendance(),
       ]);
       const ok = r => r.status === "fulfilled";
       const services = ok(servicesRes) ? servicesRes.value.data.services.map(s => ({ id: s.serviceId, name: s.serviceName, category: s.category, duration: s.duration, price: s.price, available: s.status === "active" })) : initialState.services;
-      const staff = ok(staffRes) ? staffRes.value.data.staff.map(s => ({ id: s.staffId, name: s.name, initials: s.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase(), role: s.role.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase()), status: s.status === "active" ? "available" : "break", assignedServices: s.assignedServices, todayClients: 0, shift: s.schedule?.monday || "09:00-18:00", rating: 4.8 })) : initialState.staff;
+      const staff = ok(staffRes) ? staffRes.value.data.staff.map(s => ({ id: s.staffId, staffId: s.staffId, name: s.name, initials: s.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase(), role: s.role.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase()), status: s.status === "active" ? "available" : "break", assignedServices: s.assignedServices || [], todayClients: 0, shift: s.schedule?.monday || "09:00-18:00", rating: 4.8, phone: s.phone, email: s.email })) : initialState.staff;
       const queue = ok(queueRes) ? queueRes.value.data.queue.map((q, i) => ({
         id: q.appointmentId,
         appointmentId: q.appointmentId,
@@ -139,7 +161,11 @@ export const DashboardProvider = ({ children }) => {
         staff: q.staffName || q.staffId || "Any Stylist",
         assignedStaff: q.staffName || q.staffId || "Any Stylist",
         status: q.status === "in_service" ? "in-service" : q.status === "completed" ? "completed" : q.status === "cancelled" ? "cancelled" : "waiting",
+        queuePosition: q.queuePosition || i + 1,
+        phone: q.phone || "",
+        time: q.startTime || "10:00 AM",
         eta: q.estimatedWaitTime || 0,
+        estimatedWait: q.estimatedWaitTime || 15,
         duration: 30,
         elapsed: 0
       })) : initialState.queue;
@@ -160,9 +186,29 @@ export const DashboardProvider = ({ children }) => {
       const inventory = ok(inventoryRes) ? inventoryRes.value.data.inventory.map(item => ({ id: item.inventoryId, name: item.productName, category: item.category, stock: item.quantity, usedToday: 0, reorderAt: item.lowStockThreshold, unit: item.unit })) : initialState.inventory;
       const reviews = ok(reviewsRes) ? reviewsRes.value.data.reviews.map(r => ({ id: r.reviewId, customer: r.customerId, initials: r.customerId.slice(0, 2).toUpperCase(), rating: r.rating, comment: r.comment, service: r.serviceId, date: new Date(r.createdAt).toLocaleDateString(), reply: r.managerResponse, status: r.status })) : initialState.reviews;
       const coupons = ok(couponsRes) ? couponsRes.value.data.coupons.map(c => ({ id: c.couponId, code: c.code, type: c.discountType, value: c.discountValue, minOrder: c.minimumAmount, expiry: new Date(c.validUntil).toLocaleDateString(), used: c.usedCount, active: c.status === "active", description: c.discountType === "percentage" ? `${c.discountValue}% off` : `Rs ${c.discountValue} off` })) : initialState.coupons;
-      const customers = ok(customersRes) ? customersRes.value.data.customers.map(c => ({ id: c.customerId, name: c.name, initials: c.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase(), phone: c.phone, email: c.email, visits: 0, lastVisit: c.createdAt ? new Date(c.createdAt).toLocaleDateString() : "N/A", totalSpend: 0, tier: "Regular" })) : initialState.customers;
+      const customers = ok(customersRes) ? customersRes.value.data.customers.map(c => ({ id: c.customerId, name: c.name, initials: c.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase(), phone: c.phone, email: c.email, visits: c.visits ?? 1, lastVisit: c.lastVisit || (c.createdAt ? new Date(c.createdAt).toLocaleDateString() : "N/A"), totalSpent: Number(c.totalSpent ?? c.totalSpend ?? 0), totalSpend: Number(c.totalSpent ?? c.totalSpend ?? 0), tier: c.tier || "Regular", favService: c.favService || "Salon Service" })) : initialState.customers;
+      const attendanceMap = ok(attendanceRes) ? (attendanceRes.value.data?.attendanceMap || {}) : {};
+      const attendanceSummary = ok(attendanceRes) ? (attendanceRes.value.data?.summary || { total: staff.length, present: 0, late: 0, halfDay: 0, absent: 0 }) : { total: staff.length, present: 0, late: 0, halfDay: 0, absent: 0 };
       const overview = ok(overviewRes) ? overviewRes.value.data : null;
-      dispatch({ type: "LOAD_FROM_API", payload: { queue, appointments, services, staff, inventory, reviews, coupons, customers, completedToday: overview?.kpis?.completedToday ?? initialState.completedToday, revenueToday: overview?.kpis?.revenueToday ?? initialState.revenueToday } });
+
+      dispatch({
+        type: "LOAD_FROM_API",
+        payload: {
+          queue,
+          appointments,
+          services,
+          staff,
+          inventory,
+          reviews,
+          coupons,
+          customers,
+          attendanceMap,
+          attendanceSummary,
+          completedToday: overview?.kpis?.completedToday ?? initialState.completedToday,
+          revenueToday: overview?.kpis?.revenueToday ?? 0,
+          transactionsToday: overview?.kpis?.transactionsToday ?? 0,
+        }
+      });
     } catch (err) {
       console.warn("[VEXORA] API bootstrap failed, using mock data.", err.message);
       setApiError(err.message);
@@ -232,8 +278,83 @@ export const DashboardProvider = ({ children }) => {
   const toggleCoupon = useCallback((id) => { dispatch({ type: "TOGGLE_COUPON", id }); dashboardApi.toggleCoupon(id).catch(console.warn); }, []);
   const addCoupon = useCallback((data) => { dispatch({ type: "ADD_COUPON", ...data }); dashboardApi.createCoupon({ code: data.code, discountType: data.couponType, discountValue: data.value, minimumAmount: data.minOrder, validFrom: new Date().toISOString(), validUntil: data.expiry }).catch(console.warn); }, []);
   const toggleStaffStatus = useCallback((id) => dispatch({ type: "TOGGLE_STAFF_STATUS", id }), []);
+
+  const addStaff = useCallback(async (data) => {
+    try {
+      const res = await dashboardApi.createStaff(data);
+      if (res.data?.staff) {
+        const s = res.data.staff;
+        const formatted = {
+          id: s.staffId,
+          staffId: s.staffId,
+          name: s.name,
+          initials: s.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase(),
+          role: s.role.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase()),
+          status: s.status === "active" ? "available" : "break",
+          assignedServices: s.assignedServices || [],
+          todayClients: 0,
+          shift: s.schedule?.monday || "09:00-18:00",
+          rating: 5.0,
+          phone: s.phone,
+          email: s.email
+        };
+        dispatch({ type: "ADD_STAFF", payload: formatted });
+        return { success: true, staff: formatted };
+      }
+    } catch (err) {
+      console.error("Add staff failed:", err);
+      throw err;
+    }
+  }, []);
+
+  const removeStaff = useCallback(async (staffId) => {
+    try {
+      await dashboardApi.deleteStaff(staffId);
+      dispatch({ type: "REMOVE_STAFF", id: staffId });
+      return { success: true };
+    } catch (err) {
+      console.error("Remove staff failed:", err);
+      throw err;
+    }
+  }, []);
+
+  const markAttendance = useCallback(async (staffId, status, notes = "") => {
+    try {
+      const res = await dashboardApi.markAttendance({ staffId, status, notes });
+      if (res.data?.attendance) {
+        dispatch({
+          type: "UPDATE_ATTENDANCE",
+          payload: { staffId, attendance: res.data.attendance }
+        });
+      }
+      return { success: true };
+    } catch (err) {
+      console.error("Mark attendance failed:", err);
+      throw err;
+    }
+  }, []);
+
   return (
-    <DashboardContext.Provider value={{ ...state, isApiLoading, apiError, startService, completeService, cancelService, moveUp, addCustomer, updateStock, toggleService, addService, toggleCoupon, addCoupon, toggleStaffStatus }}>
+    <DashboardContext.Provider value={{
+      ...state,
+      isApiLoading,
+      apiError,
+      startService,
+      completeService,
+      cancelService,
+      moveUp,
+      addCustomer,
+      updateStock,
+      toggleService,
+      addService,
+      toggleCoupon,
+      addCoupon,
+      toggleStaffStatus,
+      addStaff,
+      removeStaff,
+      markAttendance,
+      refreshData: loadFromBackend,
+    }}>
       {children}
     </DashboardContext.Provider>
   );

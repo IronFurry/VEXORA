@@ -54,6 +54,15 @@ export const dashboardApi = {
   /** PATCH /api/staff/:id */
   updateStaff: (staffId, data) => api.patch(`/staff/${staffId}`, data),
 
+  /** DELETE /api/staff/:id */
+  deleteStaff: (staffId) => api.delete(`/staff/${staffId}`),
+
+  /** GET /api/staff/attendance/today */
+  getTodayAttendance: () => api.get("/staff/attendance/today"),
+
+  /** POST /api/staff/attendance/mark */
+  markAttendance: (data) => api.post("/staff/attendance/mark", data),
+
   /** GET /api/customers */
   getCustomers: (params = {}) => {
     const qs = new URLSearchParams(params).toString();

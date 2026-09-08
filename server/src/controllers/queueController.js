@@ -3,6 +3,7 @@ const Customer = require("../models/Customer");
 const Salon = require("../models/Salon");
 const Staff = require("../models/Staff");
 const Service = require("../models/Service");
+const Payment = require("../models/Payment");
 const queueEngine = require("../services/queueEngine");
 const notificationService = require("../services/notificationService");
 const ApiError = require("../utils/apiError");
@@ -202,8 +203,77 @@ const completeService = async (req, res, next) => {
 
     if (!appointment) throw new ApiError("Queue entry not found.", 404);
 
+    // Auto-record paid payment for revenue tracking
+    try {
+      let payment = await Payment.findOne({ appointmentId });
+      if (!payment) {
+        const pCount = await Payment.countDocuments();
+        const paymentId = `PAY-${String(pCount + 1).padStart(3, "0")}-${Date.now().toString().slice(-4)}`;
+        payment = await Payment.create({
+          paymentId,
+          appointmentId: appointment.appointmentId,
+          customerId: appointment.customerId || "CUST-WALKIN",
+          salonId,
+          amount: appointment.price || 450,
+          paymentGateway: "cash",
+          paymentMethod: "cash",
+          status: "paid",
+          paymentTime: new Date(),
+        });
+        appointment.paymentId = paymentId;
+        await appointment.save();
+      }
+    } catch (payErr) {
+      console.warn("Could not auto-record payment on completeService:", payErr.message);
+    }
+
     // Recalculate remaining positions & ETAs
-    await queueEngine.recalculateQueue(salonId);
+    const updatedEntries = await queueEngine.recalculateQueue(salonId);
+
+    // Send QUEUE_POSITION_2 notification to customer at position 2
+    try {
+      const pos2Entry = (updatedEntries || []).find((e) => e.queuePosition === 2);
+      if (pos2Entry) {
+        const userDoc = await Customer.findOne({ customerId: pos2Entry.customerId });
+        const user = {
+          phoneNumber: userDoc?.phone || "",
+          name: userDoc?.name || "Customer",
+        };
+        const queuePosition = pos2Entry.queuePosition;
+        const appointmentData = {
+          time: pos2Entry.startTime || "10:00 AM",
+        };
+
+        if (queuePosition === 2) {
+          try {
+            await fetch(
+              "http://192.168.137.34:5000/api/notifications/send",
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                  phoneNumber: user.phoneNumber,
+                  type: "QUEUE_POSITION_2",
+                  data: {
+                    userName: user.name,
+                    appointmentTime: appointmentData.time
+                  }
+                })
+              }
+            );
+          } catch (error) {
+            console.error(
+              "Queue notification error:",
+              error.message
+            );
+          }
+        }
+      }
+    } catch (notifErr) {
+      console.error("Queue notification lookup error:", notifErr.message);
+    }
 
     // Emit Socket.IO
     const io = req.app.get("io");

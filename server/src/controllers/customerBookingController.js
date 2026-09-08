@@ -260,6 +260,47 @@ const createCustomerBooking = async (req, res, next) => {
 
     const notifications = notificationService.getNotificationsByPhone(cleanPhone);
 
+    const user = {
+      phoneNumber: customer.phone || cleanPhone,
+      name: customer.name,
+    };
+    const invoiceUrl = `http://localhost:5173/ticket/${ticketNumber}`;
+    appointment.date = appointment.appointmentDate ? new Date(appointment.appointmentDate).toLocaleDateString() : new Date().toLocaleDateString();
+    appointment.time = appointment.startTime || "10:00 AM";
+
+    try {
+      const notificationResponse = await fetch(
+        "http://192.168.137.34:5000/api/notifications/send",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            phoneNumber: user.phoneNumber,
+            type: "PAYMENT_SUCCESS",
+            data: {
+              userName: user.name,
+              appointmentDate: appointment.date,
+              appointmentTime: appointment.time,
+              invoiceUrl: invoiceUrl
+            }
+          })
+        }
+      );
+
+      console.log(
+        "Notification response:",
+        await notificationResponse.json()
+      );
+
+    } catch (error) {
+      console.error(
+        "Payment notification error:",
+        error.message
+      );
+    }
+
     return sendSuccess(
       res,
       {
@@ -411,7 +452,71 @@ const cancelTicket = async (req, res, next) => {
       });
     }
 
+    // Send APPOINTMENT_CANCELLED notification
+    try {
+      const cancelCustomer = await Customer.findOne({ customerId: appointment.customerId });
+      if (cancelCustomer?.phone) {
+        await fetch(
+          "http://192.168.137.34:5000/api/notifications/send",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              phoneNumber: cancelCustomer.phone,
+              type: "APPOINTMENT_CANCELLED",
+              data: {
+                userName: cancelCustomer.name,
+                appointmentDate: appointment.appointmentDate ? new Date(appointment.appointmentDate).toLocaleDateString() : new Date().toLocaleDateString(),
+                appointmentTime: appointment.startTime || ""
+              }
+            })
+          }
+        );
+      }
+    } catch (notifErr) {
+      console.error("Cancellation notification error:", notifErr.message);
+    }
+
     return sendSuccess(res, { appointment }, "Ticket cancelled successfully.");
+  } catch (err) {
+    next(err);
+  }
+};
+
+const geminiService = require("../services/geminiService");
+
+/**
+ * POST /api/customer/chat
+ * Natural language AI booking concierge
+ */
+const handleCustomerChat = async (req, res, next) => {
+  try {
+    const { message, history, context } = req.body;
+    if (!message || !message.trim()) {
+      throw new ApiError("Message is required.", 400);
+    }
+
+    const result = await geminiService.processCustomerChat({
+      message: message.trim(),
+      history: history || [],
+      context: context || {},
+    });
+
+    // If appointment booked, broadcast Socket.IO events to salon
+    if (result.booking) {
+      const io = req.app.get("io");
+      if (io) {
+        io.to(`salon:${result.booking.salonId}`).emit("queue:created", result.booking);
+        io.emit("queue:updated", {
+          salonId: result.booking.salonId,
+          appointmentId: result.booking.appointmentId,
+        });
+      }
+    }
+
+    return sendSuccess(res, result, "Chat processed successfully.");
   } catch (err) {
     next(err);
   }
@@ -422,4 +527,5 @@ module.exports = {
   getTicketStatus,
   getMyBookings,
   cancelTicket,
+  handleCustomerChat,
 };

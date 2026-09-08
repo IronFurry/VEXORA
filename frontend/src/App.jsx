@@ -14,6 +14,7 @@ import { CustomerModal, SalonModal } from './components/Modals.jsx';
 import { CustomerProfile } from './components/CustomerProfile.jsx';
 import { FloatingQueueWidget } from './components/FloatingQueueWidget.jsx';
 import { TicketPassModal } from './components/TicketPassModal.jsx';
+import { VexoraChatbot } from './components/VexoraChatbot.jsx';
 
 export const App = () => {
   const [currentRole, setCurrentRole] = useState('customer');
@@ -168,6 +169,9 @@ export const App = () => {
         isOpen={ticketPassOpen}
         onClose={() => setTicketPassOpen(false)}
       />
+
+      {/* ── VEXORA AI Booking Chatbot Concierge ── */}
+      <VexoraChatbot />
     </div>
   );
 };

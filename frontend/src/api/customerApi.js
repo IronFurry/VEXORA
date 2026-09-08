@@ -8,6 +8,12 @@ export const customerApi = {
     api.post("/customer/bookings", data),
 
   /**
+   * Natural language AI booking chatbot
+   */
+  chat: (data) =>
+    api.post("/customer/chat", data),
+
+  /**
    * Get ticket status and travel reminders
    */
   getTicket: (ticketId) =>
