@@ -1,7 +1,9 @@
 import React from 'react';
-import { Activity, BarChart3, Layers, Check, Shield, Users } from 'lucide-react';
+import { Activity, BarChart3, Layers, Check, Shield, Users, LayoutDashboard } from 'lucide-react';
+import { useNavigation } from '../context/NavigationContext';
 
 export const ForSalons = ({ onOpenSalonModal }) => {
+  const { navigate } = useNavigation();
   return (
     <section id="for-salons" className="section-spacing" style={{ borderTop: '1px solid var(--border-subtle)', background: 'var(--bg-subtle)' }}>
       <div className="container">
@@ -221,18 +223,35 @@ export const ForSalons = ({ onOpenSalonModal }) => {
               </span>
             </div>
 
-            <button
-              onClick={onOpenSalonModal}
-              className="btn-primary"
-              style={{
-                background: '#ffffff',
-                color: '#0a0a0a',
-                padding: '8px 20px',
-                fontSize: '0.84rem'
-              }}
-            >
-              <span>List Your Salon Today →</span>
-            </button>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => navigate('dashboard')}
+                className="btn-primary"
+                style={{
+                  background: '#ffffff',
+                  color: '#0a0a0a',
+                  padding: '8px 20px',
+                  fontSize: '0.84rem'
+                }}
+              >
+                <span>View Dashboard →</span>
+              </button>
+              <button
+                onClick={() => navigate('onboarding')}
+                style={{
+                  background: 'transparent',
+                  color: '#ffffff',
+                  border: '1px solid #3f3f46',
+                  padding: '8px 20px',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '0.84rem',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                <span>List Your Salon</span>
+              </button>
+            </div>
           </div>
 
           {/* 4 Styling Stations Status Grid */}

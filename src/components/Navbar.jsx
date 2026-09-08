@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowRight, Menu, X, UserCircle2 } from 'lucide-react';
+import { useNavigation } from '../context/NavigationContext';
 
 export const Navbar = ({ currentRole, onSelectRole, onOpenCustomerModal, onOpenSalonModal, onOpenProfile }) => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { navigate } = useNavigation();
   const isSalon = currentRole === 'salon';
 
   useEffect(() => {
@@ -157,7 +159,7 @@ export const Navbar = ({ currentRole, onSelectRole, onOpenCustomerModal, onOpenS
               </button>
             ) : (
               <button
-                onClick={onOpenSalonModal}
+                onClick={() => navigate('dashboard')}
                 className="btn-primary btn-sm"
                 style={{
                   borderRadius: 'var(--radius-sm)',

@@ -1,8 +1,10 @@
 import React from 'react';
 import { ArrowRight, ChevronDown, CheckCircle2 } from 'lucide-react';
 import { HeroAnimation } from './HeroAnimation.jsx';
+import { useNavigation } from '../context/NavigationContext';
 
 export const Hero = ({ currentRole, onOpenCustomerModal, onOpenSalonModal }) => {
+  const { navigate } = useNavigation();
   const scrollToExplore = () => {
     const nextSection = document.getElementById(currentRole === 'salon' ? 'salons' : 'about');
     if (nextSection) {
@@ -108,7 +110,7 @@ export const Hero = ({ currentRole, onOpenCustomerModal, onOpenSalonModal }) => 
               ) : (
                 <>
                   <button
-                    onClick={onOpenSalonModal}
+                    onClick={() => navigate('onboarding')}
                     className="btn-primary"
                     style={{ fontSize: '0.96rem', padding: '16px 32px' }}
                   >
@@ -116,10 +118,7 @@ export const Hero = ({ currentRole, onOpenCustomerModal, onOpenSalonModal }) => 
                   </button>
 
                   <button
-                    onClick={() => {
-                      const el = document.getElementById('salons');
-                      if (el) el.scrollIntoView({ behavior: 'smooth' });
-                    }}
+                    onClick={() => navigate('dashboard')}
                     className="btn-secondary"
                     style={{ fontSize: '0.96rem', padding: '16px 32px' }}
                   >

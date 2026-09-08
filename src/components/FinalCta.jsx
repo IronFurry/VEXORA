@@ -1,8 +1,10 @@
 import React from 'react';
 import { ArrowRight, ShieldCheck, Clock, Users, Zap } from 'lucide-react';
+import { useNavigation } from '../context/NavigationContext';
 
 export const FinalCta = ({ currentRole, onOpenCustomerModal, onOpenSalonModal }) => {
   const isCustomer = currentRole === 'customer';
+  const { navigate } = useNavigation();
 
   return (
     <section id="get-started" className="section-spacing-lg" style={{ textAlign: 'center', borderTop: '1px solid var(--border-subtle)' }}>
@@ -60,11 +62,11 @@ export const FinalCta = ({ currentRole, onOpenCustomerModal, onOpenSalonModal })
             </button>
 
             <button
-              onClick={onOpenSalonModal}
+              onClick={() => navigate('dashboard')}
               className="btn-secondary"
               style={{ fontSize: '1.02rem', padding: '16px 36px', borderRadius: 'var(--radius-sm)' }}
             >
-              <span>List Your Salon (Operator Portal)</span>
+              <span>Launch Salon Dashboard →</span>
             </button>
           </div>
 
