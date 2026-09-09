@@ -1,0 +1,577 @@
+================================================================================
+                     VEXORA / SPCA - CODEBASE ANALYSIS REPORT
+================================================================================
+Project Name    : VEXORA (Salon Partner & Customer Application - SPCA)
+Analysis Date   : September 8, 2026
+Report Format   : Plain Text (.txt)
+Environment     : Node.js (CommonJS), Express.js, MongoDB / Mongoose
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+1. EXECUTIVE SUMMARY
+2. DIRECTORY & WORKSPACE STRUCTURE
+3. TECHNOLOGY STACK & DEPENDENCIES
+4. ARCHITECTURAL OVERVIEW & DATA DESIGN PATTERN
+5. DETAILED MONGOOSE DATA SCHEMAS & MODELS
+   5.1  Salon Model (Salon.js)
+   5.2  Manager Model (Manager.js)
+   5.3  Staff Model (Staff.js)
+   5.4  Customer Model (Customer.js)
+   5.5  Service Model (Service.js)
+   5.6  Appointment Model (Appointment.js)
+   5.7  Payment Model (Payment.js)
+   5.8  Review Model (Review.js)
+   5.9  Coupon Model (Coupon.js)
+   5.10 Inventory Model (Inventory.js)
+   5.11 Staff Attendance Model (StaffAttendance.js)
+6. DATABASE RELATIONSHIPS & INDEXING STRATEGY
+7. DATABASE SEEDING ENGINE (seed.js)
+8. CURRENT APPLICATION STATE & IMPLEMENTATION GAPS
+9. SECURITY & CONFIGURATION AUDIT
+10. RECOMMENDED ROADMAP & NEXT STEPS
+
+================================================================================
+1. EXECUTIVE SUMMARY
+================================================================================
+The project "SPCA" (branded internally as "VEXORA") is an enterprise-grade
+salon management and customer booking SaaS platform backend. It supports
+multi-tenant operations across multiple salon branches, managing salon
+owners, salon managers, salon staff/technicians, customers, appointments,
+live queue tracking, inventory, payments, customer reviews, promotional
+coupons, and staff attendance.
+
+Current State of Development:
+- Database Layer: 100% complete and fully specified with 11 Mongoose models,
+  including custom string identifier keys, geospatial 2dsphere indexing,
+  compound query optimization indexes, and lifecycle timestamps.
+- Seeding & Mock Data: 100% functional with an extensive 2,037-line seed script
+  that populates realistic multi-salon data (3 salons in Bengaluru, owners,
+  managers with granular permissions, staff schedules, categorized services,
+  customer wishlist/favorites, appointments with queue status, payments,
+  reviews, coupons, inventory, and staff attendance logs).
+- API & Routing Layer: 10% initialized. The Express server boots and connects
+  to MongoDB Atlas, providing a health check endpoint at '/', but controllers,
+  routes, middlewares, services, and utilities remain empty folders.
+- Frontend Layer: 0% initialized. The 'client' folder is currently empty.
+
+================================================================================
+2. DIRECTORY & WORKSPACE STRUCTURE
+================================================================================
+SPCA/
+│
+├── atlas-credentials (1).env   <- MongoDB Atlas onboarding connection file
+│
+├── client/                     <- [EMPTY] Intended for frontend application
+│
+└── server/
+    ├── .env                    <- Runtime environment config (PORT, MONGO_URI)
+    ├── package.json            <- Node.js project metadata & dependencies
+    ├── package-lock.json       <- Dependency lockfile
+    ├── node_modules/           <- Installed npm packages
+    │
+    └── src/
+        ├── config/
+        │   └── db.js           <- Mongoose connection handler
+        │
+        ├── controllers/        <- [EMPTY] Placeholder for route controllers
+        ├── middleware/         <- [EMPTY] Placeholder for auth, RBAC, validators
+        │
+        ├── models/             <- Mongoose Schemas (11 Total)
+        │   ├── Appointment.js
+        │   ├── Coupon.js
+        │   ├── Customer.js
+        │   ├── Inventory.js
+        │   ├── Manager.js
+        │   ├── Payment.js
+        │   ├── Review.js
+        │   ├── Salon.js
+        │   ├── Service.js
+        │   ├── Staff.js
+        │   └── StaffAttendance.js
+        │
+        ├── routes/             <- [EMPTY] Placeholder for Express routers
+        ├── seed/
+        │   └── seed.js         <- 2,037 lines of comprehensive demo seed data
+        ├── services/           <- [EMPTY] Placeholder for business logic layer
+        ├── utils/              <- [EMPTY] Placeholder for helpers & utilities
+        └── server.js           <- Server entry point & Express bootstrap
+
+================================================================================
+3. TECHNOLOGY STACK & DEPENDENCIES
+================================================================================
+Backend Framework:
+- Node.js (CommonJS module system: "type": "commonjs")
+- Express.js v5.2.1 (^5.2.1) -> Modern Express 5 featuring improved native
+  Promise and async error handling.
+
+Database & ODM:
+- MongoDB (Atlas Cloud Cluster: cluster0.yq6ah2h.mongodb.net)
+- Mongoose v9.9.5 (^9.9.5) -> High-performance Object Data Modeling (ODM).
+
+Security & Utilities:
+- bcryptjs v3.0.3 (^3.0.3) -> Password hashing with salt rounds.
+- cors v2.8.6 (^2.8.6) -> Cross-Origin Resource Sharing middleware.
+- dotenv v17.4.2 (^17.4.2) -> Environment variable loader from .env.
+
+Development Tools:
+- nodemon v3.1.14 (^3.1.14) -> Live-reloading dev server.
+
+NPM Scripts Defined:
+- "start"      : "node src/server.js"
+- "dev"        : "nodemon src/server.js"
+- "seed"       : "node src/seed/seed.js"
+- "seed:reset" : "node src/seed/seed.js --reset"
+
+================================================================================
+4. ARCHITECTURAL OVERVIEW & DATA DESIGN PATTERN
+================================================================================
+1. Identifier System:
+   Unlike default MongoDB setups that purely rely on BSON ObjectId ('_id'),
+   VEXORA implements human-readable, domain-prefixed, unique string IDs:
+   - Salon:            SAL-XXX (e.g., SAL-001)
+   - Manager/Owner:    MGR-XXX (e.g., MGR-001)
+   - Staff Member:     STF-XXX (e.g., STF-001)
+   - Service:          SRV-XXX (e.g., SRV-001)
+   - Customer:         CUST-XXX (e.g., CUST-001)
+   - Appointment:      APT-XXX (e.g., APT-001)
+   - Payment:          PAY-XXX (e.g., PAY-001)
+   - Review:           REV-XXX (e.g., REV-001)
+   - Coupon:           CPN-XXX (e.g., CPN-001)
+   - Inventory Item:   INV-XXX (e.g., INV-001)
+   - Attendance Log:   ATT-XXX (e.g., ATT-001)
+
+2. Loose Coupling vs. ObjectId References:
+   The models reference each other using these business string IDs rather than
+   mongoose.Schema.Types.ObjectId with 'ref'.
+   - Advantage: Clean cross-service portability, human readability in APIs,
+     logs, invoices, URLs, and external system integrations.
+   - Consideration: Requires explicit application-level integrity enforcement
+     or custom Mongoose virtual populate references when building JOIN-like
+     aggregations.
+
+3. Geospatial Readiness:
+   Salons utilize GeoJSON Point format `{ type: "Point", coordinates: [lng, lat] }`
+   backed by MongoDB's '2dsphere' spatial index, enabling radius-based salon
+   search and customer-proximity matching.
+
+4. Hybrid Booking & Live Queue Engine:
+   Appointments support traditional scheduled bookings as well as walk-in /
+   live queue slots with real-time queue position tracking and dynamic wait times.
+
+================================================================================
+5. DETAILED MONGOOSE DATA SCHEMAS & MODELS
+================================================================================
+
+--------------------------------------------------------------------------------
+5.1 SALON MODEL (src/models/Salon.js)
+--------------------------------------------------------------------------------
+Represents a salon outlet / branch.
+Fields:
+- salonId      : String [Required, Unique, Trimmed] (e.g., "SAL-001")
+- salonName    : String [Required, Trimmed]
+- ownerId      : String [Required, Trimmed] (Points to MGR-XXX with role 'owner')
+- description  : String [Default: ""]
+- contact      : Object
+                 - phone : String [Required]
+                 - email : String [Default: ""]
+- location     : GeoJSON Object
+                 - type        : String [Enum: "Point", Default: "Point"]
+                 - coordinates : [Number] [Required] ([longitude, latitude])
+                 - address     : String [Required]
+- workingHours : Object with day keys (monday - sunday) as time strings
+- images       : [String] [Array of image URLs]
+- rating       : Number [Default: 0, Min: 0, Max: 5]
+- status       : String [Enum: "active", "inactive", "pending", Default: "active"]
+- timestamps   : createdAt, updatedAt
+Index:
+- { location: "2dsphere" } for proximity queries.
+
+--------------------------------------------------------------------------------
+5.2 MANAGER MODEL (src/models/Manager.js)
+--------------------------------------------------------------------------------
+Represents salon owners and operational managers.
+Fields:
+- managerId    : String [Required, Unique, Trimmed]
+- salonId      : String [Required, Trimmed] (Associated salon)
+- name         : String [Required, Trimmed]
+- phone        : String [Required, Trimmed]
+- email        : String [Required, Unique, Trimmed, Lowercase]
+- passwordHash : String [Required] (bcrypt hashed)
+- role         : String [Enum: "owner", "manager", Default: "manager", Required]
+- reportsTo    : String [Default: null] (Hierarchy: points to owner's managerId)
+- permissions  : [String] (Granular permissions, e.g., "view_analytics",
+                 "manage_staff", "manage_inventory", "manage_services",
+                 "manage_coupons", "manage_reviews", "manage_appointments",
+                 "view_payments")
+- status       : String [Enum: "active", "inactive", Default: "active"]
+- timestamps   : createdAt, updatedAt
+Indexes:
+- { salonId: 1 }
+- { reportsTo: 1 }
+
+--------------------------------------------------------------------------------
+5.3 STAFF MODEL (src/models/Staff.js)
+--------------------------------------------------------------------------------
+Represents service providers and salon floor employees.
+Fields:
+- staffId          : String [Required, Unique, Trimmed]
+- salonId          : String [Required, Trimmed]
+- name             : String [Required, Trimmed]
+- phone            : String [Required, Trimmed]
+- email            : String [Default: "", Trimmed]
+- role             : String [Enum: "hair_stylist", "barber", "beautician",
+                     "makeup_artist", "receptionist", "other", Required]
+- specialization   : [String] (e.g., ["Haircut", "Hair Color", "Styling"])
+- reportsTo        : String [Default: null] (Points to managerId)
+- assignedServices : [String] (Array of serviceIds)
+- schedule         : Object (monday - sunday operating hours or "OFF")
+- joiningDate      : Date [Default: null]
+- employmentType   : String [Enum: "full_time", "part_time", "contract",
+                     Default: "full_time"]
+- status           : String [Enum: "active", "inactive", "on_leave",
+                     Default: "active"]
+- timestamps       : createdAt, updatedAt
+Indexes:
+- { salonId: 1 }
+- { reportsTo: 1 }
+
+--------------------------------------------------------------------------------
+5.4 CUSTOMER MODEL (src/models/Customer.js)
+--------------------------------------------------------------------------------
+Represents end-users / salon clients.
+Fields:
+- customerId        : String [Required, Unique, Trimmed]
+- name              : String [Required, Trimmed]
+- phone             : String [Required, Unique, Trimmed]
+- email             : String [Default: "", Trimmed]
+- gender            : String [Enum: "male", "female", "other",
+                      "prefer_not_to_say", Default: "prefer_not_to_say"]
+- dateOfBirth       : Date [Default: null]
+- preferredLanguage : String [Default: "en", Trimmed]
+- wishlistSalons    : [String] (Array of salonIds bookmarked by customer)
+- favoriteStaff     : [String] (Array of staffIds favored by customer)
+- timestamps        : createdAt, updatedAt
+
+--------------------------------------------------------------------------------
+5.5 SERVICE MODEL (src/models/Service.js)
+--------------------------------------------------------------------------------
+Represents catalog services offered by a salon.
+Fields:
+- serviceId     : String [Required, Unique, Trimmed]
+- salonId       : String [Required, Trimmed]
+- serviceName   : String [Required, Trimmed]
+- category      : String [Required, Trimmed] (e.g., "Hair", "Face", "Grooming")
+- description   : String [Default: ""]
+- price         : Number [Required, Min: 0]
+- duration      : Number [Required, Min: 1] (Duration in minutes)
+- assignedStaff : [String] (Array of staffIds qualified for this service)
+- status        : String [Enum: "active", "inactive", Default: "active"]
+- timestamps    : createdAt, updatedAt
+Index:
+- { salonId: 1 }
+
+--------------------------------------------------------------------------------
+5.6 APPOINTMENT MODEL (src/models/Appointment.js)
+--------------------------------------------------------------------------------
+Central transaction entity linking customer, salon, service, and staff.
+Fields:
+- appointmentId     : String [Required, Unique, Trimmed]
+- customerId        : String [Required, Trimmed]
+- salonId           : String [Required, Trimmed]
+- serviceId         : String [Required, Trimmed]
+- staffId           : String [Default: null, Trimmed] (Can be unassigned initially)
+- appointmentDate   : Date [Required]
+- startTime         : String [Required] (e.g., "10:00")
+- endTime           : String [Required] (e.g., "10:45")
+- bookingType       : String [Enum: "appointment", "walk_in", "queue",
+                      Default: "appointment"]
+- queuePosition     : Number [Default: null] (Position in waiting queue)
+- estimatedWaitTime : Number [Default: 0, Min: 0] (Wait in minutes)
+- price             : Number [Required, Min: 0]
+- couponId          : String [Default: null]
+- paymentId         : String [Default: null]
+- checkIn           : Object
+                      - status      : String [Enum: "not_checked_in",
+                                      "checked_in", Default: "not_checked_in"]
+                      - checkedInAt : Date [Default: null]
+                      - checkedInBy : String [Default: null] (Staff/Manager ID)
+- status            : String [Enum: "confirmed", "checked_in", "waiting",
+                      "in_service", "completed", "cancelled", "no_show",
+                      Default: "confirmed"]
+- timestamps        : createdAt, updatedAt
+Indexes:
+- { salonId: 1, appointmentDate: 1 }
+- { staffId: 1, appointmentDate: 1 }
+- { customerId: 1, appointmentDate: -1 }
+- { salonId: 1, appointmentDate: 1, status: 1 } (Queue management optimization)
+
+--------------------------------------------------------------------------------
+5.7 PAYMENT MODEL (src/models/Payment.js)
+--------------------------------------------------------------------------------
+Represents billing and financial transactions.
+Fields:
+- paymentId      : String [Required, Unique, Trimmed]
+- appointmentId  : String [Required, Trimmed]
+- customerId     : String [Required, Trimmed]
+- salonId        : String [Required, Trimmed]
+- amount         : Number [Required, Min: 0]
+- paymentGateway : String [Enum: "razorpay", "stripe", "cash", "other",
+                   Default: "razorpay"]
+- transactionId  : String [Default: null, Trimmed]
+- paymentMethod  : String [Enum: "upi", "card", "netbanking", "wallet",
+                   "cash", "other", Default: "upi"]
+- status         : String [Enum: "pending", "paid", "failed", "refunded",
+                   "cancelled", Default: "pending"]
+- paymentTime    : Date [Default: null]
+- timestamps     : createdAt, updatedAt
+Indexes:
+- { customerId: 1, createdAt: -1 }
+- { salonId: 1, createdAt: -1 }
+- { appointmentId: 1 }
+- { transactionId: 1 }
+
+--------------------------------------------------------------------------------
+5.8 REVIEW MODEL (src/models/Review.js)
+--------------------------------------------------------------------------------
+Customer ratings and feedback on completed appointments.
+Fields:
+- reviewId        : String [Required, Unique, Trimmed]
+- customerId      : String [Required, Trimmed]
+- salonId         : String [Required, Trimmed]
+- appointmentId   : String [Required, Trimmed]
+- serviceId       : String [Required, Trimmed]
+- rating          : Number [Required, Min: 1, Max: 5]
+- comment         : String [Default: "", Trimmed]
+- managerResponse : String [Default: "", Trimmed] (Salon response)
+- status          : String [Enum: "published", "hidden", "pending",
+                    Default: "published"]
+- timestamps      : createdAt, updatedAt
+Indexes:
+- { customerId: 1, createdAt: -1 }
+- { salonId: 1, createdAt: -1 }
+- { appointmentId: 1 }
+
+--------------------------------------------------------------------------------
+5.9 COUPON MODEL (src/models/Coupon.js)
+--------------------------------------------------------------------------------
+Promotional discounts and campaigns managed by salon owners/managers.
+Fields:
+- couponId        : String [Required, Unique, Trimmed]
+- salonId         : String [Required, Trimmed]
+- code            : String [Required, Trimmed, Uppercase] (e.g., "LUXE10")
+- discountType    : String [Enum: "percentage", "fixed", Required]
+- discountValue   : Number [Required, Min: 0]
+- minimumAmount   : Number [Default: 0, Min: 0]
+- maximumDiscount : Number [Default: null, Min: 0]
+- validFrom       : Date [Required]
+- validUntil      : Date [Required]
+- usageLimit      : Number [Default: null, Min: 1]
+- usedCount       : Number [Default: 0, Min: 0]
+- status          : String [Enum: "active", "inactive", "expired",
+                    Default: "active"]
+- timestamps      : createdAt, updatedAt
+Indexes:
+- { salonId: 1 }
+- { salonId: 1, code: 1 }
+
+--------------------------------------------------------------------------------
+5.10 INVENTORY MODEL (src/models/Inventory.js)
+--------------------------------------------------------------------------------
+Stock and consumable supply management.
+Fields:
+- inventoryId       : String [Required, Unique, Trimmed]
+- salonId           : String [Required, Trimmed]
+- productName       : String [Required, Trimmed]
+- category          : String [Required, Trimmed]
+- quantity          : Number [Required, Min: 0]
+- unit              : String [Required, Trimmed] (e.g., "bottles", "tubes")
+- lowStockThreshold : Number [Default: 5, Min: 0]
+- purchasePrice     : Number [Required, Min: 0]
+- supplier          : String [Default: "", Trimmed]
+- status            : String [Enum: "in_stock", "low_stock", "out_of_stock",
+                      "inactive", Default: "in_stock"]
+- timestamps        : createdAt, updatedAt
+Indexes:
+- { salonId: 1 }
+- { salonId: 1, productName: 1 }
+
+--------------------------------------------------------------------------------
+5.11 STAFF ATTENDANCE MODEL (src/models/StaffAttendance.js)
+--------------------------------------------------------------------------------
+Daily employee attendance and shift recording.
+Fields:
+- attendanceId   : String [Required, Unique, Trimmed]
+- staffId        : String [Required, Trimmed]
+- salonId        : String [Required, Trimmed]
+- date           : Date [Required]
+- checkIn        : Date [Default: null]
+- checkOut       : Date [Default: null]
+- workingMinutes : Number [Default: 0, Min: 0]
+- status         : String [Enum: "present", "absent", "late", "half_day",
+                   "leave", Default: "present"]
+- notes          : String [Default: "", Trimmed]
+- timestamps     : createdAt, updatedAt
+Indexes:
+- { staffId: 1, date: -1 }
+- { salonId: 1, date: -1 }
+- { staffId: 1, date: 1 } [UNIQUE: enforces strictly 1 record per staff per day]
+
+================================================================================
+6. DATABASE RELATIONSHIPS & INDEXING STRATEGY
+================================================================================
+
+Entity Relationship Diagram (Conceptual):
+-----------------------------------------
+
+           [Salon] (SAL-XXX)
+             ├── 1:N ──> [Manager] (owner / manager hierarchy)
+             ├── 1:N ──> [Staff] (service providers)
+             │             └── 1:N ──> [StaffAttendance]
+             ├── 1:N ──> [Service] (salon menu)
+             ├── 1:N ──> [Coupon] (discount codes)
+             ├── 1:N ──> [Inventory] (stock tracking)
+             └── 1:N ──> [Appointment] <── N:1 ── [Customer] (CUST-XXX)
+                           ├── 1:1 ──> [Payment]
+                           └── 1:1 ──> [Review]
+
+Key Indexing Optimizations:
+1. Geospatial Index:
+   - Salon.location -> 2dsphere index for $near, $geoWithin, and $geoNear queries.
+2. Uniqueness Enforcement:
+   - Every entity has a unique business ID index (e.g. salonId, customerId, etc.).
+   - Manager.email -> Unique index (case-insensitive via lowercase: true).
+   - Customer.phone -> Unique index.
+   - Coupon -> Compound unique candidate index { salonId: 1, code: 1 }.
+   - StaffAttendance -> Compound unique index { staffId: 1, date: 1 }.
+3. Query Acceleration:
+   - Appointment -> Compound index { salonId: 1, appointmentDate: 1, status: 1 }
+     for lightning-fast salon dashboard and live queue rendering.
+   - Payment & Review -> Compound indexes on customerId and salonId with
+     descending createdAt for fast timeline/history retrieval.
+
+================================================================================
+7. DATABASE SEEDING ENGINE (src/seed/seed.js)
+================================================================================
+The seed file is an exceptionally well-crafted, production-like data generator
+spanning 2,037 lines of code:
+- Supports flag '--reset' to cleanly flush existing collections before seeding.
+- Password Security: Pre-computes bcrypt hashes for all manager accounts
+  using 'bcryptjs' with 10 salt rounds (default demo password: "Vexora@123").
+- Realistic Data Corpus:
+  1. 3 Premier Salons in Bangalore:
+     - SAL-001: Luxe Aura Salon (MG Road)
+     - SAL-002: Urban Glow Studio (Indiranagar)
+     - SAL-003: The Gentlemen's Club (Koramangala)
+  2. 8 Managers & Owners with specific hierarchical reporting chains
+     (reportsTo: MGR-001, etc.) and fine-grained permission matrices.
+  3. 15+ Staff members across hair, skin, makeup, and front-desk roles
+     with individual weekly operating schedules.
+  4. 20+ Categorized Services mapped to prices and durations.
+  5. 20+ Customers with preferences, wishlists, and favorite staff.
+  6. Multi-tiered promotional coupons (Percentage & Fixed).
+  7. Inventory tracking with real purchase prices and supplier details.
+  8. Appointments traversing all states (confirmed, in_service, waiting,
+     completed, cancelled, walk_in queues).
+  9. Matching Payment transactions across UPI, Card, Netbanking, Cash.
+  10. Customer Reviews with manager replies.
+  11. Multi-day Staff Attendance logs calculating working minutes and lateness.
+- Output: Produces formatted console summary metrics upon completion.
+
+================================================================================
+8. CURRENT APPLICATION STATE & IMPLEMENTATION GAPS
+================================================================================
+Currently, the codebase represents Phase 1 (Data Layer & Seeding). To transition
+into a working end-to-end platform, the following layers are needed:
+
+1. Server Routing & Mounting (server.js):
+   - Current: Only displays `{ success: true, message: "VEXORA API is running" }`.
+   - Missing: Routers are not created or mounted to Express.
+
+2. Controllers (server/src/controllers/ - Currently 0 files):
+   - Missing:
+     - authController.js (Login, Register, Token Refresh, Password Reset)
+     - salonController.js (CRUD, Geo search, Operating hours)
+     - appointmentController.js (Booking, Rescheduling, Cancellation, Queue status)
+     - staffController.js (Assignment, Roster, Schedules)
+     - customerController.js (Profile, Wishlist, Booking history)
+     - paymentController.js (Checkout, Webhook verification, Invoicing)
+     - inventoryController.js (Stock deduction, Low-stock alerts)
+     - couponController.js (Validation, Discount calculation)
+     - reviewController.js (Submit review, Manager reply)
+     - attendanceController.js (Clock-in, Clock-out, Timesheets)
+
+3. Middleware (server/src/middleware/ - Currently 0 files):
+   - Missing:
+     - authMiddleware.js (JWT extraction and verification)
+     - rbacMiddleware.js (Role check: owner vs. manager vs. staff vs. customer)
+     - permissionMiddleware.js (Validating permissions array in Manager model)
+     - validateMiddleware.js (Request body validation schema)
+     - errorHandler.js (Centralized Express 5 error handler)
+
+4. Services (server/src/services/ - Currently 0 files):
+   - Missing:
+     - appointmentService.js (Time-slot collision detection & queue estimation)
+     - paymentService.js (Razorpay/Stripe SDK integration)
+     - notificationService.js (SMS/WhatsApp/Email booking confirmation)
+
+5. Utilities (server/src/utils/ - Currently 0 files):
+   - Missing:
+     - idGenerator.js (Automatic sequence generation for SAL-XXX, APT-XXX)
+     - apiResponse.js (Standardized API response structure)
+     - apiError.js (Custom Error class)
+
+6. Frontend Application (client/ - Currently 0 files):
+   - Missing:
+     - Customer Booking Web App (Mobile-friendly booking, map, checkout)
+     - Salon Partner Dashboard (Manager POS, Staff scheduler, Live queue board)
+
+================================================================================
+9. SECURITY & CONFIGURATION AUDIT
+================================================================================
+High-Priority Security Findings:
+1. Sensitive Credentials in Plaintext:
+   - 'atlas-credentials (1).env' and 'server/.env' are stored in the project
+     directory containing active MongoDB Atlas credentials and password.
+   - Neither file is protected by a '.gitignore' file.
+   - RECOMMENDATION: Add a root '.gitignore' and 'server/.gitignore' ignoring
+     '.env', '*.env', 'node_modules/', and invalidate/rotate exposed credentials.
+
+2. Open CORS Configuration:
+   - 'app.use(cors())' allows cross-origin requests from any domain without
+     origin whitelisting. In production, configure origin filters.
+
+3. Authentication Tokens:
+   - 'bcryptjs' is installed and used for seeding, but 'jsonwebtoken' (JWT) is
+     not yet listed in package.json dependencies. JWT will be required for
+     stateless session authentication.
+
+4. Input Validation:
+   - While Mongoose schemas define field types and enums, HTTP payloads
+     should be sanitized and validated at the route boundary using Zod or Joi.
+
+================================================================================
+10. RECOMMENDED ROADMAP & NEXT STEPS
+================================================================================
+Phase 2: Authentication & Core Architecture
+- Install 'jsonwebtoken' and create auth middleware.
+- Implement Manager/Owner authentication & Customer OTP/phone login.
+- Build standard API response wrapper & global error handler.
+
+Phase 3: Salon & Staff Management API
+- Build Salon profile and 2dsphere nearby geolocation discovery endpoint.
+- Implement Staff management, roster scheduling, and daily attendance logging.
+
+Phase 4: Appointment, Booking & Live Queue Engine
+- Create intelligent slot availability algorithm (prevent double-booking).
+- Build the walk-in and virtual queue engine with dynamic wait time updates.
+- Integrate Coupon validation and Payment gateway integration.
+
+Phase 5: Frontend Development (client/)
+- Initialize React/Vite web application.
+- Build responsive Customer Booking Portal.
+- Build Salon Partner Dashboard with real-time queue boards and analytics.
+
+================================================================================
+                              END OF REPORT
+================================================================================
