@@ -1,0 +1,767 @@
+/* ==========================================================================
+   VEXORA DESIGN SYSTEM — MONOCHROME EDITORIAL SAAS
+   Visual discipline: 85% white, 10% black, 5% soft gray
+   No colored tints, no gradients, no glassmorphism
+   ========================================================================== */
+
+:root {
+  /* Color Palette (Monochrome Only) */
+  --bg-white: #ffffff;
+  --bg-subtle: #fcfcfc;
+  --bg-surface: #f7f7f7;
+  --bg-surface-elevated: #efefef;
+  --bg-card: #ffffff;
+  --bg-black: #0a0a0a;
+  --bg-black-soft: #141414;
+  --bg-black-elevated: #1e1e1e;
+
+  --text-primary: #0a0a0a;
+  --text-secondary: #52525b;
+  --text-muted: #71717a;
+  --text-tertiary: #a1a1aa;
+  --text-white: #ffffff;
+  --text-white-dim: #d4d4d8;
+
+  --border-ultra-subtle: #f0f0f2;
+  --border-subtle: #e4e4e7;
+  --border-medium: #d4d4d8;
+  --border-strong: #0a0a0a;
+  --border-dark: #27272a;
+
+  /* Typography */
+  --font-heading: 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Shadows (Restrained, Crisp) */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 12px 0 rgba(0, 0, 0, 0.05);
+  --shadow-floating: 0 10px 30px -5px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.06);
+  --shadow-dashboard: 0 20px 40px -15px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.08);
+
+  /* Radii */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 9999px;
+
+  /* Layout */
+  --container-width: 1200px;
+  --container-wide: 1360px;
+}
+
+/* Reset & Box Sizing */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-family: var(--font-body);
+  color: var(--text-primary);
+  background-color: var(--bg-white);
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  min-height: 100vh;
+  overflow-x: hidden;
+  background-color: var(--bg-white);
+  line-height: 1.5;
+}
+
+/* Typography Base */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.025em;
+}
+
+p {
+  color: var(--text-secondary);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+button {
+  font-family: var(--font-body);
+  border: none;
+  cursor: pointer;
+  background: none;
+  outline: none;
+}
+
+/* Layout Utilities */
+.container {
+  width: 100%;
+  max-width: var(--container-width);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 24px;
+  padding-right: 24px;
+}
+
+.container-wide {
+  width: 100%;
+  max-width: var(--container-wide);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 24px;
+  padding-right: 24px;
+}
+
+.section-spacing {
+  padding-top: 140px;
+  padding-bottom: 140px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.section-spacing-lg {
+  padding-top: 180px;
+  padding-bottom: 180px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* Editorial Labels & Eyebrows */
+.eyebrow {
+  display: inline-block;
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 18px;
+}
+
+.eyebrow-dark {
+  color: var(--text-white-dim);
+}
+
+.section-headline {
+  font-family: var(--font-heading);
+  font-size: clamp(2.5rem, 4.5vw, 3.8rem);
+  line-height: 1.02;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  color: var(--text-primary);
+  margin-bottom: 24px;
+}
+
+.section-description {
+  font-size: 1.15rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  max-width: 680px;
+}
+
+/* Brand Wordmark */
+.brand-wordmark {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  font-size: 1.15rem;
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-icon {
+  width: 22px;
+  height: 22px;
+  background-color: var(--bg-black);
+  color: var(--text-white);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+/* Buttons */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background-color: var(--bg-black);
+  color: var(--text-white);
+  padding: 14px 28px;
+  font-size: 0.92rem;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--bg-black);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-primary:hover {
+  background-color: var(--bg-black-soft);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background-color: transparent;
+  color: var(--text-primary);
+  padding: 14px 28px;
+  font-size: 0.92rem;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-medium);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-secondary:hover {
+  border-color: var(--border-strong);
+  background-color: var(--bg-surface);
+  transform: translateY(-1px);
+}
+
+.btn-sm {
+  padding: 8px 16px;
+  font-size: 0.82rem;
+}
+
+/* Micro badges */
+.badge-mono {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 4px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.badge-black {
+  background-color: var(--bg-black);
+  color: var(--text-white);
+  border-color: var(--bg-black);
+}
+
+.badge-live {
+  position: relative;
+  padding-left: 18px;
+}
+
+.badge-live::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--text-primary);
+  animation: pulse-dot 1.8s infinite ease-in-out;
+}
+
+@keyframes pulse-dot {
+  0%, 100% {
+    opacity: 1;
+    transform: translateY(-50%) scale(1);
+  }
+  50% {
+    opacity: 0.3;
+    transform: translateY(-50%) scale(0.8);
+  }
+}
+
+/* Clean White Top Navbar (Seamless with page background) */
+.navbar-wrapper {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  background-color: var(--bg-white);
+  border-bottom: 1px solid var(--border-subtle);
+  pointer-events: auto;
+}
+
+.navbar-inner {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: 16px 32px;
+  background-color: var(--bg-white);
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.navbar-inner.inline-state,
+.navbar-inner.floating-pill {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: 16px 32px;
+  background-color: var(--bg-white);
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* Role Transition Flash & Aggressive Background Blur */
+.role-flash-backdrop {
+  animation: role-flash-backdrop 1.05s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.role-flash-text {
+  animation: role-flash-text 1.05s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes role-flash-backdrop {
+  0% {
+    opacity: 0;
+    backdrop-filter: blur(0px);
+    -webkit-backdrop-filter: blur(0px);
+    background-color: rgba(255, 255, 255, 0);
+  }
+  20% {
+    opacity: 1;
+    backdrop-filter: blur(48px) saturate(200%);
+    -webkit-backdrop-filter: blur(48px) saturate(200%);
+    background-color: rgba(255, 255, 255, 0.85);
+  }
+  75% {
+    opacity: 1;
+    backdrop-filter: blur(48px) saturate(200%);
+    -webkit-backdrop-filter: blur(48px) saturate(200%);
+    background-color: rgba(255, 255, 255, 0.85);
+  }
+  100% {
+    opacity: 0;
+    backdrop-filter: blur(0px);
+    -webkit-backdrop-filter: blur(0px);
+    background-color: rgba(255, 255, 255, 0);
+  }
+}
+
+@keyframes role-flash-text {
+  0% {
+    opacity: 0;
+    transform: scale(0.82);
+    filter: blur(14px);
+  }
+  22% {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0px);
+  }
+  75% {
+    opacity: 1;
+    transform: scale(1.02);
+    filter: blur(0px);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.08);
+    filter: blur(18px);
+  }
+}
+
+/* SVG Hero — Live Badge Pulse */
+@keyframes svg-pulse-dot {
+  0%, 100% { opacity: 1; r: 4; }
+  50% { opacity: 0.25; r: 3; }
+}
+
+/* Animations for Shears & Hair Line Art */
+@keyframes shear-top {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  30% {
+    transform: rotate(-14deg);
+  }
+  50% {
+    transform: rotate(0deg);
+  }
+  70% {
+    transform: rotate(-12deg);
+  }
+  85% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes shear-bottom {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  30% {
+    transform: rotate(14deg);
+  }
+  50% {
+    transform: rotate(0deg);
+  }
+  70% {
+    transform: rotate(12deg);
+  }
+  85% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes hair-sway {
+  0%, 100% {
+    transform: rotate(0deg) translateY(0);
+  }
+  40% {
+    transform: rotate(1.5deg) translateY(-2px);
+  }
+  75% {
+    transform: rotate(-1deg) translateY(1px);
+  }
+}
+
+@keyframes comb-glide {
+  0%, 100% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  35% {
+    transform: translate(-10px, 14px) rotate(-3deg);
+  }
+  65% {
+    transform: translate(6px, 28px) rotate(2deg);
+  }
+}
+
+@keyframes hair-fall-1 {
+  0%, 35% {
+    opacity: 0;
+    transform: translate(0, 0) rotate(0deg);
+  }
+  45% {
+    opacity: 0.9;
+    transform: translate(-8px, 15px) rotate(25deg);
+  }
+  80% {
+    opacity: 0;
+    transform: translate(-18px, 60px) rotate(80deg);
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes hair-fall-2 {
+  0%, 55% {
+    opacity: 0;
+    transform: translate(0, 0) rotate(0deg);
+  }
+  65% {
+    opacity: 0.8;
+    transform: translate(10px, 18px) rotate(-30deg);
+  }
+  95% {
+    opacity: 0;
+    transform: translate(22px, 70px) rotate(-90deg);
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes float-indicator {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(6px);
+  }
+}
+
+@keyframes float-ticket {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  40% { transform: translateY(-8px) rotate(1deg); }
+  70% { transform: translateY(-4px) rotate(-0.5deg); }
+}
+
+.floating-arrow {
+  animation: float-indicator 2.2s infinite ease-in-out;
+}
+
+/* Clean Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-white);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-medium);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* Modal Overlay & Card (Strict Monochrome) */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(10, 10, 10, 0.6);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal-content {
+  background: var(--bg-white);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-dashboard);
+  width: 100%;
+  max-width: 520px;
+  padding: 32px;
+  position: relative;
+  animation: modal-enter 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modal-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Responsive Overrides */
+@media (max-width: 900px) {
+  .section-spacing {
+    padding-top: 90px;
+    padding-bottom: 90px;
+  }
+  .section-spacing-lg {
+    padding-top: 100px;
+    padding-bottom: 100px;
+  }
+  .section-headline {
+    font-size: 2.2rem;
+  }
+}
+
+/* ==========================================================================
+   VEXORA SALON SAAS DASHBOARD & ONBOARDING STYLES
+   ========================================================================== */
+
+/* Dashboard Container & Grid Utilities */
+.dash-card {
+  background-color: var(--bg-white);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.dash-card:hover {
+  border-color: var(--border-medium);
+  box-shadow: var(--shadow-md);
+}
+
+.dash-card-dark {
+  background-color: var(--bg-black);
+  color: var(--text-white);
+  border: 1px solid var(--border-dark);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-dashboard);
+}
+
+/* Status Badges (Strict Functional Palette) */
+.badge-in-service {
+  background-color: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
+.badge-waiting {
+  background-color: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+
+.badge-completed {
+  background-color: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+.badge-cancelled {
+  background-color: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.badge-neutral {
+  background-color: #f4f4f5;
+  color: #3f3f46;
+  border: 1px solid #e4e4e7;
+}
+
+/* Table Enhancements */
+.dash-table-wrapper {
+  background: var(--bg-white);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.dash-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.825rem;
+}
+
+.dash-table th {
+  background-color: var(--bg-subtle);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.dash-table td {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-ultra-subtle);
+  color: var(--text-primary);
+}
+
+.dash-table tr:last-child td {
+  border-bottom: none;
+}
+
+.dash-table tr:hover td {
+  background-color: rgba(247, 247, 247, 0.6);
+}
+
+/* Form Controls */
+.dash-input, .dash-select {
+  width: 100%;
+  padding: 10px 14px;
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+  font-size: 0.825rem;
+  color: var(--text-primary);
+  transition: all 0.18s ease;
+  outline: none;
+}
+
+.dash-input:focus, .dash-select:focus {
+  background-color: var(--bg-white);
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 2px rgba(10, 10, 10, 0.05);
+}
+
+.dash-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  letter-spacing: 0.01em;
+}
+
+/* Onboarding Step Connector */
+.onboarding-step-active {
+  background-color: var(--bg-black) !important;
+  color: var(--text-white) !important;
+}
+
+.onboarding-step-completed {
+  background-color: #059669 !important;
+  color: var(--text-white) !important;
+}
+
+/* Chart Bars & Visual Indicators */
+.chart-bar-fill {
+  transition: height 0.6s cubic-bezier(0.16, 1, 0.3, 1), width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Explicit Dashboard Shell Layout Rules */
+.vex-dash-layout {
+  display: flex !important;
+  flex-direction: row !important;
+  min-height: 100vh !important;
+  background-color: #f9fafb !important;
+  color: #111827 !important;
+  position: relative !important;
+  width: 100% !important;
+}
+
+.vex-dash-sidebar {
+  width: 256px !important;
+  min-width: 256px !important;
+  max-width: 256px !important;
+  height: 100vh !important;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  bottom: 0 !important;
+  background-color: #ffffff !important;
+  border-right: 1px solid #e5e7eb !important;
+  display: flex !important;
+  flex-direction: column !important;
+  z-index: 40 !important;
+}
+
+.vex-dash-main {
+  flex: 1 !important;
+  margin-left: 256px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 100vh !important;
+  width: calc(100% - 256px) !important;
+  background-color: #f9fafb !important;
+}
+
+.vex-dash-topbar {
+  height: 64px !important;
+  min-height: 64px !important;
+  background-color: #ffffff !important;
+  border-bottom: 1px solid #e5e7eb !important;
+  padding: 0 32px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 30 !important;
+}
+
+
